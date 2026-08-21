@@ -11,7 +11,12 @@ permissions:
 
 jobs:
   diagnose:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    name: diagnose-${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -23,63 +28,57 @@ jobs:
       - run: npm ci
       - run: npm run build
 
-      - name: Bisect the environment
+      - name: Bisect
         continue-on-error: true
         env:
           TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
         run: |
           S="$GITHUB_STEP_SUMMARY"
+          echo "# ${{ matrix.os }}" >> "$S"
+          echo '```' >> "$S"
+          grep PRETTY /etc/os-release >> "$S"
+          ldd --version | head -1 >> "$S"
+          openssl version >> "$S" 2>&1 || true
+          echo '```' >> "$S"
 
-          # let the CLI fetch the binary for us
           npx --yes @azure/static-web-apps-cli@2 deploy ./dist --env production \
             --deployment-token "$TOKEN" > /dev/null 2>&1 || true
           BIN=$(find "$HOME/.swa" -name 'StaticSitesClient*' -type f ! -name '*.json' | head -1)
           chmod +x "$BIN"
 
-          COMMON="DEPLOYMENT_ACTION=upload DEPLOYMENT_PROVIDER=SwaCli SKIP_APP_BUILD=true SKIP_API_BUILD=true DEPLOYMENT_ENVIRONMENT=production"
+          C="DEPLOYMENT_ACTION=upload DEPLOYMENT_PROVIDER=SwaCli SKIP_APP_BUILD=true SKIP_API_BUILD=true DEPLOYMENT_ENVIRONMENT=production"
 
-          run_variant () {
+          v () {
             local name="$1"; shift
             echo "### $name" >> "$S"
             echo '```' >> "$S"
-            set +e
-            "$@" > v.log 2>&1
-            local rc=$?
-            set -e
-            echo "exit=$rc" >> "$S"
-            tail -12 v.log >> "$S"
+            set +e; "$@" > v.log 2>&1; local rc=$?; set -e
+            echo "exit=$rc" >> "$S"; tail -10 v.log >> "$S"
             echo '```' >> "$S"
           }
 
-          # A: full runner environment (baseline)
-          run_variant "A - full runner env" \
-            env $COMMON \
-              REPOSITORY_BASE="$GITHUB_WORKSPACE" \
-              DEPLOYMENT_TOKEN="$TOKEN" \
-              APP_LOCATION="$GITHUB_WORKSPACE/dist" \
-              "$BIN" upload
+          v "A - full runner env" \
+            env $C REPOSITORY_BASE="$GITHUB_WORKSPACE" DEPLOYMENT_TOKEN="$TOKEN" \
+                APP_LOCATION="$GITHUB_WORKSPACE/dist" "$BIN" upload
 
-          # B: same, but GitHub Actions markers removed
-          run_variant "B - GITHUB_* markers unset" \
+          v "B - GITHUB_* unset" \
             env -u GITHUB_ACTIONS -u GITHUB_WORKFLOW -u GITHUB_RUN_ID -u GITHUB_REPOSITORY \
                 -u GITHUB_REF -u GITHUB_SHA -u GITHUB_EVENT_NAME -u GITHUB_WORKSPACE \
                 -u GITHUB_HEAD_REF -u GITHUB_BASE_REF -u GITHUB_ACTOR -u CI \
-                $COMMON \
-              REPOSITORY_BASE="$RUNNER_TEMP" \
-              DEPLOYMENT_TOKEN="$TOKEN" \
-              APP_LOCATION="$GITHUB_WORKSPACE/dist" \
-              "$BIN" upload
+                $C REPOSITORY_BASE="$RUNNER_TEMP" DEPLOYMENT_TOKEN="$TOKEN" \
+                APP_LOCATION="$GITHUB_WORKSPACE/dist" "$BIN" upload
 
-          # C: completely scrubbed environment
-          run_variant "C - scrubbed env -i" \
+          v "C - scrubbed env -i" \
             env -i PATH=/usr/local/bin:/usr/bin:/bin HOME="$HOME" \
-                $COMMON \
-              REPOSITORY_BASE="$RUNNER_TEMP" \
-              DEPLOYMENT_TOKEN="$TOKEN" \
-              APP_LOCATION="$GITHUB_WORKSPACE/dist" \
-              "$BIN" upload
+                $C REPOSITORY_BASE="$RUNNER_TEMP" DEPLOYMENT_TOKEN="$TOKEN" \
+                APP_LOCATION="$GITHUB_WORKSPACE/dist" "$BIN" upload
 
-          echo "### Any log files the binary wrote" >> "$S"
-          echo '```' >> "$S"
-          find "$HOME" "$RUNNER_TEMP" /tmp -maxdepth 3 -iname '*staticsites*log*' -o -maxdepth 3 -iname '*.swa*log*' 2>/dev/null | head >> "$S" || true
-          echo '```' >> "$S"
+          v "D - invariant globalization" \
+            env $C DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 \
+                REPOSITORY_BASE="$GITHUB_WORKSPACE" DEPLOYMENT_TOKEN="$TOKEN" \
+                APP_LOCATION="$GITHUB_WORKSPACE/dist" "$BIN" upload
+
+          v "E - legacy crypto allowed" \
+            env $C OPENSSL_CONF=/dev/null DOTNET_SYSTEM_NET_HTTP_USESOCKETSHTTPHANDLER=0 \
+                REPOSITORY_BASE="$GITHUB_WORKSPACE" DEPLOYMENT_TOKEN="$TOKEN" \
+                APP_LOCATION="$GITHUB_WORKSPACE/dist" "$BIN" upload
