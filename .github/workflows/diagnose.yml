@@ -23,44 +23,61 @@ jobs:
       - run: npm ci
       - run: npm run build
 
-      - name: Environment facts
-        run: |
-          echo "--- os ---"; cat /etc/os-release | head -3
-          echo "--- glibc ---"; ldd --version | head -1
-          echo "--- libicu ---"; (ldconfig -p | grep -i icu | head -5) || echo "no libicu"
-          echo "--- dotnet ---"; (dotnet --info 2>&1 | head -5) || echo "no dotnet"
-
-      - name: Fetch StaticSitesClient directly
-        run: |
-          set -x
-          META=$(curl -sSL https://swalocaldeploy.azureedge.net/downloads/versions.json || \
-                 curl -sSL https://swalocaldeployv2-bndtgugjgqc3dhdx.b01.azurefd.net/downloads/versions.json)
-          echo "$META" | head -c 2000
-          URL=$(echo "$META" | python3 -c "import sys,json; d=json.load(sys.stdin); print((d.get('stable') or d)['linux-x64']['url'])")
-          echo "URL=$URL"
-          curl -sSL "$URL" -o ssc
-          chmod +x ssc
-          echo "--- file ---"; file ssc
-          echo "--- ldd ---"; ldd ssc || echo "ldd reported issues (static binary is fine)"
-          echo "--- version ---"; ./ssc --version || echo "version call failed rc=$?"
-
-      - name: Run StaticSitesClient directly with verbose output
+      - name: Collect diagnostics
         continue-on-error: true
         env:
-          DEPLOYMENT_ACTION: upload
-          DEPLOYMENT_PROVIDER: SwaCli
-          REPOSITORY_BASE: ${{ github.workspace }}
-          SKIP_APP_BUILD: "true"
-          SKIP_API_BUILD: "true"
-          DEPLOYMENT_TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
-          APP_LOCATION: ${{ github.workspace }}/dist
-          CONFIG_FILE_LOCATION: ${{ github.workspace }}/dist
-          VERBOSE: "true"
-          DEPLOYMENT_ENVIRONMENT: production
+          SWA_CLI_DEPLOYMENT_TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
         run: |
-          ./ssc upload 2>&1 | tee ssc.log
-          echo "=== exit ${PIPESTATUS[0]} ==="
+          S="$GITHUB_STEP_SUMMARY"
 
-      - name: Tail of direct run
-        if: always()
-        run: tail -60 ssc.log || true
+          echo "## Environment" >> "$S"
+          echo '```' >> "$S"
+          grep PRETTY /etc/os-release >> "$S" 2>&1 || true
+          ldd --version | head -1 >> "$S" 2>&1 || true
+          echo "libicu: $(ldconfig -p | grep -c icu)" >> "$S" 2>&1 || true
+          echo '```' >> "$S"
+
+          echo "## swa deploy (expected to fail)" >> "$S"
+          echo '```' >> "$S"
+          npx --yes @azure/static-web-apps-cli@2 deploy ./dist --env production > swa.log 2>&1 || true
+          tail -25 swa.log >> "$S"
+          echo '```' >> "$S"
+
+          BIN=$(find "$HOME/.swa" -name 'StaticSitesClient*' -type f ! -name '*.json' | head -1)
+          echo "## Binary" >> "$S"
+          echo '```' >> "$S"
+          echo "path: $BIN" >> "$S"
+          if [ -n "$BIN" ]; then
+            chmod +x "$BIN"
+            file "$BIN" >> "$S" 2>&1 || true
+            echo "--- ldd ---" >> "$S"
+            ldd "$BIN" >> "$S" 2>&1 || echo "(ldd non-zero)" >> "$S"
+          fi
+          echo '```' >> "$S"
+
+          echo "## Direct run, VERBOSE=true" >> "$S"
+          echo '```' >> "$S"
+          if [ -n "$BIN" ]; then
+            env \
+              DEPLOYMENT_ACTION=upload \
+              DEPLOYMENT_PROVIDER=SwaCli \
+              REPOSITORY_BASE="$GITHUB_WORKSPACE" \
+              SKIP_APP_BUILD=true \
+              SKIP_API_BUILD=true \
+              DEPLOYMENT_TOKEN="$SWA_CLI_DEPLOYMENT_TOKEN" \
+              APP_LOCATION="$GITHUB_WORKSPACE/dist" \
+              CONFIG_FILE_LOCATION="$GITHUB_WORKSPACE/dist" \
+              DEPLOYMENT_ENVIRONMENT=production \
+              VERBOSE=true \
+              "$BIN" upload > direct.log 2>&1 || echo "exit=$?" >> "$S"
+            tail -60 direct.log >> "$S"
+          fi
+          echo '```' >> "$S"
+
+          echo "## Reachability of the deploy API" >> "$S"
+          echo '```' >> "$S"
+          curl -sS -o /dev/null -w 'proud-forest host: %{http_code} in %{time_total}s\n' \
+            https://proud-forest-0ae525d03.7.azurestaticapps.net/ >> "$S" 2>&1 || true
+          curl -sS -o /dev/null -w 'westeurope api: %{http_code} in %{time_total}s\n' \
+            https://westeurope.api.azurestaticapps.net/ >> "$S" 2>&1 || true
+          echo '```' >> "$S"
