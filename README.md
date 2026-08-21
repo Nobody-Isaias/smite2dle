@@ -52,17 +52,23 @@ npm run build   # tsc -b && vite build -> dist/
 
 ## Deployment
 
-Currently hosted as an **Azure Storage static website** in the `smite2dle_rg` resource group.
+Hosted on **Azure Static Web Apps** (Free tier), app `smite2dle` in the `smite2dle_rg`
+resource group.
 
 ```powershell
 .\deploy.ps1
 ```
 
-Live at <https://smite2dle19696.z6.web.core.windows.net/>.
+Live at <https://proud-forest-0ae525d03.7.azurestaticapps.net/>.
 
-> **Note:** a tenant policy on this subscription has repeatedly reset `publicNetworkAccess` to
-> `Disabled`, which silently takes the site offline. `deploy.ps1` detects this and re-enables it.
-> Migrating to Azure Static Web Apps in a different tenant is the planned fix.
+Pushes and pull requests run lint + build in GitHub Actions, but deployment is a
+local step. Automating it is currently blocked: `StaticSitesClient` fails with an
+opaque `An unknown exception has occurred` on GitHub-hosted runners, both through
+`Azure/static-web-apps-deploy@v1` and through the Static Web Apps CLI, on
+`ubuntu-latest` and `ubuntu-22.04`, and whether the artifact is deployed from the
+workspace or from a bare directory. The identical CLI command succeeds from a
+local machine against the same app and token, so the cause appears to be
+environmental rather than a configuration problem.
 
 ## Disclaimer
 

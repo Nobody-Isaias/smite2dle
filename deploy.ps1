@@ -1,21 +1,29 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-  Builds Smite2dle and deploys it to the Azure Storage static website.
+  Builds Smite2dle and deploys it to Azure Static Web Apps.
 
 .DESCRIPTION
-  Runs lint + build, verifies the storage account is publicly reachable (a tenant policy on this
-  subscription has repeatedly reset publicNetworkAccess to Disabled), uploads dist/ to the $web
-  container, and prunes stale hashed assets left over from previous deployments.
+  Runs lint + build, then publishes dist/ with the Static Web Apps CLI.
+
+  The deployment token is read from the SWA_DEPLOYMENT_TOKEN environment
+  variable when present; otherwise it is fetched with the Azure CLI, which
+  requires you to be signed in to the subscription that owns the app:
+
+    az login
+    az account set --subscription "Visual Studio Enterprise Subscription"
 
 .EXAMPLE
   .\deploy.ps1
 .EXAMPLE
   .\deploy.ps1 -SkipBuild
+.EXAMPLE
+  .\deploy.ps1 -Environment preview
 #>
 param(
-  [string]$AccountName = "smite2dle19696",
+  [string]$AppName = "smite2dle",
   [string]$ResourceGroupName = "smite2dle_rg",
+  [string]$Environment = "production",
   [switch]$SkipBuild
 )
 
@@ -34,56 +42,28 @@ if (-not (Test-Path "dist/index.html")) {
   throw "dist/index.html not found. Run without -SkipBuild."
 }
 
-Write-Host "==> Checking public network access" -ForegroundColor Cyan
-$access = az storage account show `
-  --name $AccountName `
-  --resource-group $ResourceGroupName `
-  --query "publicNetworkAccess" -o tsv
+$token = $env:SWA_DEPLOYMENT_TOKEN
 
-if ($access -ne "Enabled") {
-  Write-Warning "publicNetworkAccess is '$access' - re-enabling (tenant policy resets this)."
-  az storage account update `
-    --name $AccountName `
+if (-not $token) {
+  Write-Host "==> Fetching deployment token" -ForegroundColor Cyan
+  $token = az staticwebapp secrets list `
+    --name $AppName `
     --resource-group $ResourceGroupName `
-    --public-network-access Enabled `
-    --output none
-}
+    --query "properties.apiKey" -o tsv
 
-Write-Host "==> Uploading dist/" -ForegroundColor Cyan
-az storage blob upload-batch `
-  --account-name $AccountName `
-  --auth-mode login `
-  --destination '$web' `
-  --source dist `
-  --overwrite true `
-  --output none
-if ($LASTEXITCODE -ne 0) { throw "Upload failed" }
-
-Write-Host "==> Pruning stale assets" -ForegroundColor Cyan
-$current = Get-ChildItem dist/assets -File | ForEach-Object { "assets/$($_.Name)" }
-$remote = az storage blob list `
-  --account-name $AccountName `
-  --auth-mode login `
-  --container-name '$web' `
-  --prefix "assets/" `
-  --query "[].name" -o tsv
-
-foreach ($blob in $remote) {
-  if ($current -notcontains $blob) {
-    az storage blob delete `
-      --account-name $AccountName `
-      --auth-mode login `
-      --container-name '$web' `
-      --name $blob `
-      --output none
-    Write-Host "    pruned $blob" -ForegroundColor DarkGray
+  if (-not $token) {
+    throw "Could not read the deployment token. Run 'az login' and select the right subscription."
   }
 }
 
-$url = az storage account show `
-  --name $AccountName `
+Write-Host "==> Deploying to '$Environment'" -ForegroundColor Cyan
+npx --yes @azure/static-web-apps-cli@2 deploy ./dist --env $Environment --deployment-token $token
+if ($LASTEXITCODE -ne 0) { throw "Deployment failed" }
+
+$url = az staticwebapp show `
+  --name $AppName `
   --resource-group $ResourceGroupName `
-  --query "primaryEndpoints.web" -o tsv
+  --query "defaultHostname" -o tsv
 
 Write-Host ""
-Write-Host "Deployed: $url" -ForegroundColor Green
+Write-Host "Deployed: https://$url" -ForegroundColor Green

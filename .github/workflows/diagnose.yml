@@ -1,0 +1,66 @@
+name: Diagnose SWA deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Environment facts
+        run: |
+          echo "--- os ---"; cat /etc/os-release | head -3
+          echo "--- glibc ---"; ldd --version | head -1
+          echo "--- libicu ---"; (ldconfig -p | grep -i icu | head -5) || echo "no libicu"
+          echo "--- dotnet ---"; (dotnet --info 2>&1 | head -5) || echo "no dotnet"
+
+      - name: Fetch StaticSitesClient directly
+        run: |
+          set -x
+          META=$(curl -sSL https://swalocaldeploy.azureedge.net/downloads/versions.json || \
+                 curl -sSL https://swalocaldeployv2-bndtgugjgqc3dhdx.b01.azurefd.net/downloads/versions.json)
+          echo "$META" | head -c 2000
+          URL=$(echo "$META" | python3 -c "import sys,json; d=json.load(sys.stdin); print((d.get('stable') or d)['linux-x64']['url'])")
+          echo "URL=$URL"
+          curl -sSL "$URL" -o ssc
+          chmod +x ssc
+          echo "--- file ---"; file ssc
+          echo "--- ldd ---"; ldd ssc || echo "ldd reported issues (static binary is fine)"
+          echo "--- version ---"; ./ssc --version || echo "version call failed rc=$?"
+
+      - name: Run StaticSitesClient directly with verbose output
+        continue-on-error: true
+        env:
+          DEPLOYMENT_ACTION: upload
+          DEPLOYMENT_PROVIDER: SwaCli
+          REPOSITORY_BASE: ${{ github.workspace }}
+          SKIP_APP_BUILD: "true"
+          SKIP_API_BUILD: "true"
+          DEPLOYMENT_TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          APP_LOCATION: ${{ github.workspace }}/dist
+          CONFIG_FILE_LOCATION: ${{ github.workspace }}/dist
+          VERBOSE: "true"
+          DEPLOYMENT_ENVIRONMENT: production
+        run: |
+          ./ssc upload 2>&1 | tee ssc.log
+          echo "=== exit ${PIPESTATUS[0]} ==="
+
+      - name: Tail of direct run
+        if: always()
+        run: tail -60 ssc.log || true
