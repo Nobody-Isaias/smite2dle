@@ -53,22 +53,31 @@ npm run build   # tsc -b && vite build -> dist/
 ## Deployment
 
 Hosted on **Azure Static Web Apps** (Free tier), app `smite2dle` in the `smite2dle_rg`
-resource group.
+resource group. Live at <https://proud-forest-0ae525d03.7.azurestaticapps.net/>.
+
+Pushes to `main` build and deploy automatically via GitHub Actions. Pull requests
+deploy to a `pr-<number>` preview environment. To publish by hand:
 
 ```powershell
 .\deploy.ps1
 ```
 
-Live at <https://proud-forest-0ae525d03.7.azurestaticapps.net/>.
+### Note on the deployment token
 
-Pushes and pull requests run lint + build in GitHub Actions, but deployment is a
-local step. Automating it is currently blocked: `StaticSitesClient` fails with an
-opaque `An unknown exception has occurred` on GitHub-hosted runners, both through
-`Azure/static-web-apps-deploy@v1` and through the Static Web Apps CLI, on
-`ubuntu-latest` and `ubuntu-22.04`, and whether the artifact is deployed from the
-workspace or from a bare directory. The identical CLI command succeeds from a
-local machine against the same app and token, so the cause appears to be
-environmental rather than a configuration problem.
+`StaticSitesClient` copies the deployment token straight into an HTTP
+`Authorization` header, so **any trailing whitespace in the
+`AZURE_STATIC_WEB_APPS_API_TOKEN` secret makes every deployment fail**:
+
+```
+System.FormatException: The format of value 'token ***\n' is invalid.
+  at System.Net.Http.Headers.HttpHeaderParser.ParseValue(...)
+  at StaticSitesClient.Helpers.ContentDistributionClient.InitializeClient(...)
+```
+
+Only the newest build of `StaticSitesClient` prints that detail; the stable and
+backup builds report just `An unknown exception has occurred`, which makes the
+failure look environmental. The workflow trims the token before use, so it no
+longer matters how the secret was pasted.
 
 ## Disclaimer
 
