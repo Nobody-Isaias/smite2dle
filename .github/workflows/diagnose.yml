@@ -23,61 +23,63 @@ jobs:
       - run: npm ci
       - run: npm run build
 
-      - name: Collect diagnostics
+      - name: Bisect the environment
         continue-on-error: true
         env:
-          SWA_CLI_DEPLOYMENT_TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
         run: |
           S="$GITHUB_STEP_SUMMARY"
 
-          echo "## Environment" >> "$S"
-          echo '```' >> "$S"
-          grep PRETTY /etc/os-release >> "$S" 2>&1 || true
-          ldd --version | head -1 >> "$S" 2>&1 || true
-          echo "libicu: $(ldconfig -p | grep -c icu)" >> "$S" 2>&1 || true
-          echo '```' >> "$S"
-
-          echo "## swa deploy (expected to fail)" >> "$S"
-          echo '```' >> "$S"
-          npx --yes @azure/static-web-apps-cli@2 deploy ./dist --env production > swa.log 2>&1 || true
-          tail -25 swa.log >> "$S"
-          echo '```' >> "$S"
-
+          # let the CLI fetch the binary for us
+          npx --yes @azure/static-web-apps-cli@2 deploy ./dist --env production \
+            --deployment-token "$TOKEN" > /dev/null 2>&1 || true
           BIN=$(find "$HOME/.swa" -name 'StaticSitesClient*' -type f ! -name '*.json' | head -1)
-          echo "## Binary" >> "$S"
-          echo '```' >> "$S"
-          echo "path: $BIN" >> "$S"
-          if [ -n "$BIN" ]; then
-            chmod +x "$BIN"
-            file "$BIN" >> "$S" 2>&1 || true
-            echo "--- ldd ---" >> "$S"
-            ldd "$BIN" >> "$S" 2>&1 || echo "(ldd non-zero)" >> "$S"
-          fi
-          echo '```' >> "$S"
+          chmod +x "$BIN"
 
-          echo "## Direct run, VERBOSE=true" >> "$S"
-          echo '```' >> "$S"
-          if [ -n "$BIN" ]; then
-            env \
-              DEPLOYMENT_ACTION=upload \
-              DEPLOYMENT_PROVIDER=SwaCli \
+          COMMON="DEPLOYMENT_ACTION=upload DEPLOYMENT_PROVIDER=SwaCli SKIP_APP_BUILD=true SKIP_API_BUILD=true DEPLOYMENT_ENVIRONMENT=production"
+
+          run_variant () {
+            local name="$1"; shift
+            echo "### $name" >> "$S"
+            echo '```' >> "$S"
+            set +e
+            "$@" > v.log 2>&1
+            local rc=$?
+            set -e
+            echo "exit=$rc" >> "$S"
+            tail -12 v.log >> "$S"
+            echo '```' >> "$S"
+          }
+
+          # A: full runner environment (baseline)
+          run_variant "A - full runner env" \
+            env $COMMON \
               REPOSITORY_BASE="$GITHUB_WORKSPACE" \
-              SKIP_APP_BUILD=true \
-              SKIP_API_BUILD=true \
-              DEPLOYMENT_TOKEN="$SWA_CLI_DEPLOYMENT_TOKEN" \
+              DEPLOYMENT_TOKEN="$TOKEN" \
               APP_LOCATION="$GITHUB_WORKSPACE/dist" \
-              CONFIG_FILE_LOCATION="$GITHUB_WORKSPACE/dist" \
-              DEPLOYMENT_ENVIRONMENT=production \
-              VERBOSE=true \
-              "$BIN" upload > direct.log 2>&1 || echo "exit=$?" >> "$S"
-            tail -60 direct.log >> "$S"
-          fi
-          echo '```' >> "$S"
+              "$BIN" upload
 
-          echo "## Reachability of the deploy API" >> "$S"
+          # B: same, but GitHub Actions markers removed
+          run_variant "B - GITHUB_* markers unset" \
+            env -u GITHUB_ACTIONS -u GITHUB_WORKFLOW -u GITHUB_RUN_ID -u GITHUB_REPOSITORY \
+                -u GITHUB_REF -u GITHUB_SHA -u GITHUB_EVENT_NAME -u GITHUB_WORKSPACE \
+                -u GITHUB_HEAD_REF -u GITHUB_BASE_REF -u GITHUB_ACTOR -u CI \
+                $COMMON \
+              REPOSITORY_BASE="$RUNNER_TEMP" \
+              DEPLOYMENT_TOKEN="$TOKEN" \
+              APP_LOCATION="$GITHUB_WORKSPACE/dist" \
+              "$BIN" upload
+
+          # C: completely scrubbed environment
+          run_variant "C - scrubbed env -i" \
+            env -i PATH=/usr/local/bin:/usr/bin:/bin HOME="$HOME" \
+                $COMMON \
+              REPOSITORY_BASE="$RUNNER_TEMP" \
+              DEPLOYMENT_TOKEN="$TOKEN" \
+              APP_LOCATION="$GITHUB_WORKSPACE/dist" \
+              "$BIN" upload
+
+          echo "### Any log files the binary wrote" >> "$S"
           echo '```' >> "$S"
-          curl -sS -o /dev/null -w 'proud-forest host: %{http_code} in %{time_total}s\n' \
-            https://proud-forest-0ae525d03.7.azurestaticapps.net/ >> "$S" 2>&1 || true
-          curl -sS -o /dev/null -w 'westeurope api: %{http_code} in %{time_total}s\n' \
-            https://westeurope.api.azurestaticapps.net/ >> "$S" 2>&1 || true
+          find "$HOME" "$RUNNER_TEMP" /tmp -maxdepth 3 -iname '*staticsites*log*' -o -maxdepth 3 -iname '*.swa*log*' 2>/dev/null | head >> "$S" || true
           echo '```' >> "$S"
