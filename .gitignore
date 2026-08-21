@@ -22,3 +22,16 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Secrets and keys - never commit these
+*.pem
+*.key
+*.ppk
+id_rsa*
+id_ed25519*
+github-personal*
+*_rsa
+*_ed25519
+.env
+.env.*
+!.env.example
