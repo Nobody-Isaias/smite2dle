@@ -9,76 +9,50 @@ on:
 permissions:
   contents: read
 
+env:
+  CDN: https://swalocaldeployv2-bndtgugjgqc3dhdx.b01.azurefd.net/downloads
+
 jobs:
   diagnose:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-22.04, ubuntu-24.04]
-    runs-on: ${{ matrix.os }}
-    name: diagnose-${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-
       - run: npm ci
       - run: npm run build
 
-      - name: Bisect
+      - name: Compare StaticSitesClient builds
         continue-on-error: true
         env:
           TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
         run: |
           S="$GITHUB_STEP_SUMMARY"
-          echo "# ${{ matrix.os }}" >> "$S"
-          echo '```' >> "$S"
-          grep PRETTY /etc/os-release >> "$S"
-          ldd --version | head -1 >> "$S"
-          openssl version >> "$S" 2>&1 || true
-          echo '```' >> "$S"
 
-          npx --yes @azure/static-web-apps-cli@2 deploy ./dist --env production \
-            --deployment-token "$TOKEN" > /dev/null 2>&1 || true
-          BIN=$(find "$HOME/.swa" -name 'StaticSitesClient*' -type f ! -name '*.json' | head -1)
-          chmod +x "$BIN"
-
-          C="DEPLOYMENT_ACTION=upload DEPLOYMENT_PROVIDER=SwaCli SKIP_APP_BUILD=true SKIP_API_BUILD=true DEPLOYMENT_ENVIRONMENT=production"
-
-          v () {
-            local name="$1"; shift
-            echo "### $name" >> "$S"
+          try_build () {
+            local label="$1" build="$2"
+            echo "### $label ($build)" >> "$S"
             echo '```' >> "$S"
-            set +e; "$@" > v.log 2>&1; local rc=$?; set -e
-            echo "exit=$rc" >> "$S"; tail -10 v.log >> "$S"
+            curl -sSL "$CDN/$build/linux/StaticSitesClient" -o "ssc-$build" || {
+              echo "download failed" >> "$S"; echo '```' >> "$S"; return; }
+            chmod +x "ssc-$build"
+            set +e
+            env DEPLOYMENT_ACTION=upload DEPLOYMENT_PROVIDER=SwaCli \
+                SKIP_APP_BUILD=true SKIP_API_BUILD=true \
+                DEPLOYMENT_ENVIRONMENT=production \
+                REPOSITORY_BASE="$GITHUB_WORKSPACE" \
+                DEPLOYMENT_TOKEN="$TOKEN" \
+                APP_LOCATION="$GITHUB_WORKSPACE/dist" \
+                "./ssc-$build" upload > "b-$build.log" 2>&1
+            local rc=$?
+            set -e
+            echo "exit=$rc" >> "$S"
+            tail -14 "b-$build.log" >> "$S"
             echo '```' >> "$S"
           }
 
-          v "A - full runner env" \
-            env $C REPOSITORY_BASE="$GITHUB_WORKSPACE" DEPLOYMENT_TOKEN="$TOKEN" \
-                APP_LOCATION="$GITHUB_WORKSPACE/dist" "$BIN" upload
-
-          v "B - GITHUB_* unset" \
-            env -u GITHUB_ACTIONS -u GITHUB_WORKFLOW -u GITHUB_RUN_ID -u GITHUB_REPOSITORY \
-                -u GITHUB_REF -u GITHUB_SHA -u GITHUB_EVENT_NAME -u GITHUB_WORKSPACE \
-                -u GITHUB_HEAD_REF -u GITHUB_BASE_REF -u GITHUB_ACTOR -u CI \
-                $C REPOSITORY_BASE="$RUNNER_TEMP" DEPLOYMENT_TOKEN="$TOKEN" \
-                APP_LOCATION="$GITHUB_WORKSPACE/dist" "$BIN" upload
-
-          v "C - scrubbed env -i" \
-            env -i PATH=/usr/local/bin:/usr/bin:/bin HOME="$HOME" \
-                $C REPOSITORY_BASE="$RUNNER_TEMP" DEPLOYMENT_TOKEN="$TOKEN" \
-                APP_LOCATION="$GITHUB_WORKSPACE/dist" "$BIN" upload
-
-          v "D - invariant globalization" \
-            env $C DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 \
-                REPOSITORY_BASE="$GITHUB_WORKSPACE" DEPLOYMENT_TOKEN="$TOKEN" \
-                APP_LOCATION="$GITHUB_WORKSPACE/dist" "$BIN" upload
-
-          v "E - legacy crypto allowed" \
-            env $C OPENSSL_CONF=/dev/null DOTNET_SYSTEM_NET_HTTP_USESOCKETSHTTPHANDLER=0 \
-                REPOSITORY_BASE="$GITHUB_WORKSPACE" DEPLOYMENT_TOKEN="$TOKEN" \
-                APP_LOCATION="$GITHUB_WORKSPACE/dist" "$BIN" upload
+          try_build "latest  2026-08-05" d3c91588e7e47f64005e6ccafddb0c02eccf9f43
+          try_build "stable  2026-05-21" 689a6c1fe8fc32f40348cc41223a7e9d83dd43d2
+          try_build "backup  2026-01-13" 08e29138cd3dcda4ffda6d587aa580028110c1c7
