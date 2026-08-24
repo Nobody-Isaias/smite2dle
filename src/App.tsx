@@ -1416,9 +1416,10 @@ function App() {
 
       const wrongGodGuesses = skinGuesses.filter((guess) => guess.name !== skinAnswer.godName).length
       const wrongSkinGuesses = skinNameGuesses.filter((guess) => guess !== skinAnswer.skinName).length
-      const revealLevel = skinGodSolved ? 4 : Math.min(wrongGodGuesses + wrongSkinGuesses, 4)
-      const blur = revealLevel >= 2 ? 0 : 15 - revealLevel * 10
-      const isGreyscale = revealLevel < 4
+      // 0 strong blur + grey, 1 soft blur + grey, 2 soft blur + colour, 3 unfiltered
+      const revealLevel = skinGodSolved ? 3 : Math.min(wrongGodGuesses + wrongSkinGuesses, 3)
+      const blur = revealLevel >= 3 ? 0 : revealLevel >= 1 ? 3 : 6
+      const isGreyscale = revealLevel < 2
 
       return (
         <div className="skinStage">
@@ -1434,9 +1435,10 @@ function App() {
 
     if (mode === 'item') {
       const wrongGuesses = itemGuesses.filter((guess) => guess !== itemAnswer.name).length
+      // 0 strong blur + grey, 1 soft blur + grey, 2 no blur + grey, 3 colour
       const revealLevel = hasWon ? 3 : Math.min(wrongGuesses, 3)
-      const blur = revealLevel >= 3 ? 0 : revealLevel >= 1 ? 6 : 14
-      const isGreyscale = revealLevel < 2
+      const blur = revealLevel >= 2 ? 0 : revealLevel >= 1 ? 3 : 6
+      const isGreyscale = revealLevel < 3
 
       return (
         <div className="itemStage">
