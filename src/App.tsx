@@ -542,11 +542,18 @@ const FIELDS: { key: FieldKey; label: string }[] = [
   { key: 'year', label: 'Year' },
 ]
 
-const MODES: { key: Mode; label: string; eyebrow: string; description: string }[] = [
+const MODES: {
+  key: Mode
+  label: string
+  eyebrow: string
+  description: string
+  minGuesses: number
+}[] = [
   {
     key: 'classic',
     label: 'God',
     eyebrow: 'Daily God Mode',
+    minGuesses: 1,
     description:
       'Guess the mystery Smite 2 god. Every guess reveals color-coded hints for pantheon, role, attack range, damage type, specialization, and release year.',
   },
@@ -554,6 +561,7 @@ const MODES: { key: Mode; label: string; eyebrow: string; description: string }[
     key: 'splash',
     label: 'Ability',
     eyebrow: 'Daily Ability',
+    minGuesses: 2,
     description:
       'Guess the god from the official Smite 2 ability icon, then identify the ability slot.',
   },
@@ -561,6 +569,7 @@ const MODES: { key: Mode; label: string; eyebrow: string; description: string }[
     key: 'skin',
     label: 'Skin',
     eyebrow: 'Daily Skin',
+    minGuesses: 2,
     description:
       'Guess the god from an official Smite 2 skin card, then identify the skin name.',
   },
@@ -568,6 +577,7 @@ const MODES: { key: Mode; label: string; eyebrow: string; description: string }[
     key: 'item',
     label: 'Item',
     eyebrow: 'Daily Item',
+    minGuesses: 1,
     description: 'Guess the Smite 2 item from its icon. Each wrong guess makes the icon clearer.',
   },
 ]
@@ -576,6 +586,7 @@ const SUMMARY_MODE = {
   key: 'summary' as Mode,
   label: 'Summary',
   eyebrow: 'Daily Summary',
+  minGuesses: 0,
   description: 'Your results across every Smite2dle mode today.',
 }
 
@@ -1490,7 +1501,13 @@ function App() {
   })
 
   const unsolvedModes = modeResults.filter((result) => !result.solved)
+  const allModesSolved = unsolvedModes.length === 0
   const totalGuesses = modeResults.reduce((sum, result) => sum + result.guesses, 0)
+  const totalPar = modeResults.reduce((sum, result) => sum + result.minGuesses, 0)
+  const totalMisses = modeResults.reduce(
+    (sum, result) => sum + Math.max(0, result.guesses - result.minGuesses),
+    0,
+  )
 
   const rollRandomAnswers = (targetMode?: Mode) => {
     if (!targetMode || targetMode === 'classic') {
@@ -2043,6 +2060,15 @@ function App() {
                   {modeConfig.label}
                 </button>
               ))}
+              {allModesSolved ? (
+                <button
+                  className={`modeTab summaryTab ${mode === 'summary' ? 'active' : ''}`}
+                  type="button"
+                  onClick={() => changeMode('summary')}
+                >
+                  {SUMMARY_MODE.label}
+                </button>
+              ) : null}
             </nav>
             <p className="lede">{activeMode.description}</p>
             {mode === 'summary' ? (
@@ -2069,11 +2095,16 @@ function App() {
           <div className="panel game" ref={gameRef}>
             {mode === 'summary' ? (
               <div className="summaryPanel">
-                {unsolvedModes.length === 0 ? (
+                {allModesSolved ? (
                   <>
-                    <p className="summaryHeadline">All modes complete</p>
+                    <p className="summaryHeadline">
+                      {totalMisses === 0 ? 'Perfect round' : 'All modes complete'}
+                    </p>
                     <p className="summarySub">
-                      {totalGuesses} total {totalGuesses === 1 ? 'guess' : 'guesses'} today.
+                      {totalGuesses} {totalGuesses === 1 ? 'guess' : 'guesses'}
+                      {totalMisses === 0
+                        ? ` - a perfect round, no wrong answers.`
+                        : ` - ${totalMisses} wrong (${totalPar} is perfect).`}
                     </p>
                   </>
                 ) : (
@@ -2104,9 +2135,21 @@ function App() {
                         </span>
                       </span>
                       <span className="summaryScore">
-                        {result.solved
-                          ? `${result.guesses} ${result.guesses === 1 ? 'guess' : 'guesses'}`
-                          : 'Open'}
+                        {result.solved ? (
+                          <>
+                            <span className="summaryScoreValue">
+                              {result.guesses}
+                              <span className="summaryScorePar">/{result.minGuesses}</span>
+                            </span>
+                            <span className="summaryScoreNote">
+                              {result.guesses <= result.minGuesses
+                                ? 'perfect'
+                                : `${result.guesses - result.minGuesses} wrong`}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="summaryScoreValue">Open</span>
+                        )}
                       </span>
                     </button>
                   ))}

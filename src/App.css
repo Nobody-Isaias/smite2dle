@@ -135,6 +135,30 @@ h1 {
   box-shadow: 0 0 18px var(--cp-accent-soft);
 }
 
+/* Appears only once every mode is solved, so set it apart from the mode tabs. */
+.summaryTab {
+  margin-left: 4px;
+  border-color: var(--cp-accent);
+  border-style: dashed;
+  color: var(--cp-accent);
+  animation: summary-tab-in 260ms ease both;
+}
+
+.summaryTab.active {
+  border-style: solid;
+}
+
+@keyframes summary-tab-in {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 .lede {
   max-width: 680px;
   margin: 0;
@@ -753,10 +777,38 @@ h1 {
 }
 
 .summaryScore {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
   color: var(--cp-text-muted);
   font-size: 13px;
   font-weight: 700;
   white-space: nowrap;
+}
+
+.summaryScoreValue {
+  color: var(--cp-text);
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.summaryScorePar {
+  color: var(--cp-text-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.summaryScoreNote {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.summaryRow.correct .summaryScoreNote {
+  color: var(--cp-accent);
 }
 
 .summaryFoot {
