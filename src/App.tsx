@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent } from 'react'
+import { ClueImage } from './ClueImage'
 import { ITEMS, ITEM_CDN_BASE } from './items'
 import './App.css'
 
@@ -1385,14 +1386,11 @@ function App() {
         <div className="abilityClueStage">
           <div className="abilityClueFrame">
             {splashAnswer.iconUrl ? (
-              <img
+              <ClueImage
                 className={`abilityClueIcon ${splashGodSolved ? 'revealed' : ''}`}
                 src={splashAnswer.iconUrl}
-                alt=""
-                style={{
-                  filter: isGreyscale ? 'grayscale(1)' : 'none',
-                  transform: `rotate(${rotation}deg)`,
-                }}
+                greyscale={isGreyscale}
+                rotation={rotation}
               />
             ) : (
               <div
@@ -1421,17 +1419,14 @@ function App() {
       const revealLevel = skinGodSolved ? 4 : Math.min(wrongGodGuesses + wrongSkinGuesses, 4)
       const blur = revealLevel >= 2 ? 0 : 15 - revealLevel * 10
       const isGreyscale = revealLevel < 4
-      const variantFilter = ''
 
       return (
         <div className="skinStage">
-          <img
+          <ClueImage
             className="skinImage"
             src={skinAnswer.imageUrl}
-            alt=""
-            style={{
-              filter: `${variantFilter} ${isGreyscale ? 'grayscale(1) ' : ''}blur(${blur}px)`,
-            }}
+            blur={blur}
+            greyscale={isGreyscale}
           />
         </div>
       )
@@ -1445,11 +1440,11 @@ function App() {
 
       return (
         <div className="itemStage">
-          <img
+          <ClueImage
             className="itemImage"
             src={`${ITEM_CDN_BASE}${itemAnswer.path}`}
-            alt=""
-            style={{ filter: `${isGreyscale ? 'grayscale(1) ' : ''}blur(${blur}px)` }}
+            blur={blur}
+            greyscale={isGreyscale}
           />
         </div>
       )

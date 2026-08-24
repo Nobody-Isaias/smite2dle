@@ -544,8 +544,7 @@ h1 {
 .abilityClueIcon {
   width: 70%;
   height: 70%;
-  object-fit: contain;
-  transition: filter 240ms ease, transform 240ms ease;
+  transition: transform 240ms ease;
 }
 
 .abilityClueIcon.revealed {
@@ -642,11 +641,8 @@ h1 {
   aspect-ratio: 3 / 4;
   border: 2px solid var(--cp-accent);
   border-radius: 16px;
-  object-fit: contain;
-  object-position: center;
   background: var(--cp-bg);
   box-shadow: inset 0 0 0 1px var(--cp-border-strong), 0 18px 48px rgba(0, 0, 0, 0.34);
-  transition: filter 260ms ease;
 }
 
 .compactBoard {
@@ -834,10 +830,21 @@ h1 {
   aspect-ratio: 1;
   border: 2px solid var(--cp-accent);
   border-radius: 20px;
-  object-fit: contain;
   background: var(--cp-bg);
   box-shadow: inset 0 0 0 1px var(--cp-border-strong), 0 18px 48px rgba(0, 0, 0, 0.34);
-  transition: filter 260ms ease;
+}
+
+/* Clue art must not be draggable or long-press saveable - the canvas already
+   holds only distorted pixels, this just removes the affordance. */
+.abilityClueIcon,
+.skinImage,
+.itemImage,
+.godPortrait,
+.compactGuessIcon {
+  -webkit-user-drag: none;
+  -webkit-touch-callout: none;
+  user-select: none;
+  pointer-events: none;
 }
 
 .slotChoicePanel {
