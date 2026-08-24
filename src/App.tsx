@@ -616,8 +616,74 @@ function getUtcDayKey(date = new Date()) {
   return date.toISOString().slice(0, 10)
 }
 
-function hashDay(dayKey: string) {
-  return dayKey.split('').reduce((hash, char) => hash + char.charCodeAt(0), 0)
+// xmur3: string -> well-mixed 32-bit seed. A previous version summed character
+// codes, which advances by exactly 1 per day and walked each pool in order.
+function hashSeed(value: string) {
+  let h = 1779033703 ^ value.length
+
+  for (let i = 0; i < value.length; i += 1) {
+    h = Math.imul(h ^ value.charCodeAt(i), 3432918353)
+    h = (h << 13) | (h >>> 19)
+  }
+
+  return () => {
+    h = Math.imul(h ^ (h >>> 16), 2246822507)
+    h = Math.imul(h ^ (h >>> 13), 3266489909)
+    h ^= h >>> 16
+    return h >>> 0
+  }
+}
+
+// mulberry32: small, fast, well-distributed seeded PRNG.
+function seededRandom(seed: string) {
+  let state = hashSeed(seed)()
+
+  return () => {
+    state = (state + 0x6d2b79f5) | 0
+    let t = state
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+// Every daily answer derives from the date, so each mode draws from an
+// independent stream and any past day can be reproduced from its date.
+function daysSinceEpoch(dayKey: string) {
+  return Math.floor(Date.parse(`${dayKey}T00:00:00Z`) / 86400000)
+}
+
+// Fisher-Yates driven by the seeded PRNG.
+function seededShuffle<T>(items: T[], seed: string) {
+  const deck = [...items]
+  const random = seededRandom(seed)
+
+  for (let i = deck.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(random() * (i + 1))
+    ;[deck[i], deck[j]] = [deck[j], deck[i]]
+  }
+
+  return deck
+}
+
+// Deals from a shuffled deck rather than picking independently at random, so a
+// pool is fully exhausted before anything repeats. The deck is reshuffled each
+// cycle, and everything still derives from the date, so past days stay
+// reproducible.
+function seededPick<T>(items: T[], scope: string, dayKey = getUtcDayKey()) {
+  if (items.length === 0) {
+    return undefined
+  }
+
+  const dayNumber = daysSinceEpoch(dayKey)
+  const cycle = Math.floor(dayNumber / items.length)
+  const position = ((dayNumber % items.length) + items.length) % items.length
+
+  return seededShuffle(items, `${scope}:cycle:${cycle}`)[position]
+}
+
+function seededInt(scope: string, max: number, dayKey = getUtcDayKey()) {
+  return Math.floor(seededRandom(`${dayKey}:${scope}`)() * max)
 }
 
 function normalize(value: string) {
@@ -652,18 +718,17 @@ function getFallbackGod(name: string) {
   return FALLBACK_ROSTER.find((god) => normalize(god.name) === normalize(name))
 }
 
-function getDailyGod(mode: Mode, roster: God[]) {
-  const modeOffset = MODES.findIndex((modeConfig) => modeConfig.key === mode) * 11
-  return roster[(hashDay(getUtcDayKey()) + modeOffset) % roster.length]
+function getDailyGod(mode: Mode, roster: God[], dayKey = getUtcDayKey()) {
+  return seededPick(roster, `god:${mode}`, dayKey) ?? roster[0]
 }
 
-function getDailyAbilityFromList(mode: Mode, abilities: AbilityClue[]) {
-  const modeOffset = MODES.findIndex((modeConfig) => modeConfig.key === mode) * 17
-  return abilities[(hashDay(getUtcDayKey()) + modeOffset) % abilities.length]
+function getDailyAbilityFromList(mode: Mode, abilities: AbilityClue[], dayKey = getUtcDayKey()) {
+  return seededPick(abilities, `ability:${mode}`, dayKey) ?? abilities[0]
 }
 
-function getDailySkinFromList(skins: SkinClue[]) {  const eligibleSkins = getEligibleSkins(skins)
-  return eligibleSkins[(hashDay(getUtcDayKey()) + 29) % eligibleSkins.length]
+function getDailySkinFromList(skins: SkinClue[], dayKey = getUtcDayKey()) {
+  const eligibleSkins = getEligibleSkins(skins)
+  return seededPick(eligibleSkins, 'skin', dayKey) ?? eligibleSkins[0]
 }
 
 function getEligibleSkins(skins: SkinClue[]) {
@@ -679,8 +744,8 @@ function getRandomItem<T>(items: T[]) {
   return items[Math.floor(Math.random() * items.length)]
 }
 
-function getDailyItem() {
-  return ITEMS[(hashDay(getUtcDayKey()) + 41) % ITEMS.length]
+function getDailyItem(dayKey = getUtcDayKey()) {
+  return seededPick(ITEMS, 'item', dayKey) ?? ITEMS[0]
 }
 
 function loadStoredGodGuesses(mode: Mode, dayKey: string, roster: God[] = FALLBACK_ROSTER) {
@@ -1745,7 +1810,7 @@ function App() {
     if (mode === 'splash') {
       const wrongGuesses = splashGuesses.filter((guess) => guess.name !== splashAnswer.godName).length
       const revealLevel = splashGodSolved ? 3 : Math.min(wrongGuesses + splashAbilityGuesses.length, 3)
-      const rotation = revealLevel >= 1 ? 0 : ((hashDay(dayKey) % 3) + 1) * 90
+      const rotation = revealLevel >= 1 ? 0 : (seededInt('ability-rotation', 3, dayKey) + 1) * 90
       const isGreyscale = revealLevel < 2
       const showName = revealLevel >= 3 || hasWon
 
