@@ -17,24 +17,40 @@ chains to the following mode; solving Item unlocks the hidden Summary page.
 
 ## Data sources
 
-All game data is fetched live at runtime from public endpoints — there is no backend:
+Game data is built into a single snapshot file rather than fetched from the wikis on
+every page load. `scripts/build-snapshot.mjs` collects it and writes
+`public/data/snapshot.json` (~119 KB raw, ~17 KB gzipped), which the app reads once at
+startup.
 
 - **[wiki.smite2.com](https://wiki.smite2.com/)** (MediaWiki API) — god roster, roles and
-  specializations (via category membership), skins (parsed from the `SkinViewer` template), and
-  portrait/art image URLs. Primary source; most up to date.
+  specializations (via category membership), skins (parsed from the `SkinViewer` template),
+  and skin art URLs. Primary source; most up to date.
 - **[smite.fandom.com](https://smite.fandom.com/)** (MediaWiki API) — original SMITE release years.
-- **`webcms.hirezstudios.com/smite2/api`** — official Hi-Rez CMS, used for ability icons.
+- **`webcms.hirezstudios.com/smite2/api`** — official Hi-Rez CMS, used for ability icons and
+  god portraits.
 - **`cdn.smitesource.com`** — item icons. Item metadata is a bundled snapshot in `src/items.ts`
   because SmiteSource sits behind Cloudflare and cannot be scraped from the browser.
 
-Images are hotlinked rather than mirrored — deliberately, to avoid rehosting Hi-Rez artwork.
+Images are hotlinked from the wiki and from Hi-Rez's own CDN rather than mirrored —
+deliberately, to avoid rehosting their artwork. Both sit behind Cloudflare with long
+cache lifetimes, so a player costs them a handful of already-cached requests. The one
+image we do host is the site backdrop (`public/img/backdrop.webp`), because it loads on
+every page view and never changes.
 
-### Known limitation
+### Refreshing the snapshot
 
-The app currently fetches the full dataset (~24 requests, ~3 MB) on every page load. That is fine
-for a handful of players, but would put unreasonable load on community-run wikis at scale. The plan
-is to replace this with a periodically refreshed `data.json` snapshot (~30 KB) served from our own
-storage.
+```powershell
+npm run snapshot
+```
+
+The script is deliberately slow: requests are sequential with a delay (default 2.5s,
+plus jitter) and it backs off on 429 or 5xx. A full rebuild is about 24 requests over
+roughly a minute.
+
+`.github/workflows/refresh-snapshot.yml` runs it every **Thursday at 04:00 UTC** — patches
+land on Tuesday, so this gives the wiki community time to document the changes first. It
+commits only when the data actually changed, and that commit triggers a redeploy. You can
+also run it by hand from the Actions tab.
 
 ## Local development
 

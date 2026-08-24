@@ -44,88 +44,6 @@ type SkinClue = {
 
 type PortraitMap = Record<string, string>
 
-type CmsGod = {
-  attributes?: {
-    Name?: string
-    Subtitle?: string
-    publishedAt?: string
-    Portrait?: {
-      data?: {
-        attributes?: {
-          url?: string
-          formats?: {
-            thumbnail?: {
-              url?: string
-            }
-          }
-        }
-      }
-    }
-    HeaderImage?: {
-      data?: {
-        attributes?: {
-          url?: string
-          formats?: {
-            large?: {
-              url?: string
-            }
-            medium?: {
-              url?: string
-            }
-          }
-        }
-      }
-    }
-    pantheon?: {
-      data?: {
-        attributes?: {
-          Name?: string
-        }
-      }
-    }
-    roles?: {
-      data?: Array<{
-        attributes?: {
-          Name?: string
-        }
-      }>
-    }
-    Ability?: CmsAbility[]
-    Skin?: CmsSkin[]
-  }
-}
-
-type CmsAbility = {
-  Name?: string
-  Slot?: string
-  Icon?: {
-    data?: {
-      attributes?: {
-        url?: string
-      }
-    }
-  }
-}
-
-type CmsSkin = {
-  Name?: string
-  Image?: {
-    data?: {
-      attributes?: {
-        url?: string
-        formats?: {
-          small?: {
-            url?: string
-          }
-          medium?: {
-            url?: string
-          }
-        }
-      }
-    }
-  }
-}
-
 const ROSTER: God[] = [
   {
     name: 'Aladdin',
@@ -620,8 +538,7 @@ const ABILITY_CLUES: AbilityClue[] = [
 
 const STORAGE_KEY_PREFIX = 'smite2dle:'
 const ABILITY_SLOT_CHOICES = ['1', '2', '3', 'Ultimate', 'Passive']
-const BACKDROP_URL =
-  'https://pcindiemrace.com/wp-content/uploads/2024/03/EPIC-MarketingSizes-1r1-1920x1080_1920x1080-2b0de61ac94515759c64f914188ca9b5.jpeg'
+const BACKDROP_URL = `${import.meta.env.BASE_URL}img/backdrop.webp`
 
 function getUtcDayKey(date = new Date()) {
   return date.toISOString().slice(0, 10)
@@ -699,34 +616,6 @@ function seededInt(scope: string, max: number, dayKey = getUtcDayKey()) {
 
 function normalize(value: string) {
   return value.trim().toLowerCase()
-}
-
-function inferClass(role: string) {
-  if (role === 'Carry') {
-    return 'Hunter'
-  }
-
-  if (role === 'Mid') {
-    return 'Mage'
-  }
-
-  if (role === 'Support') {
-    return 'Guardian'
-  }
-
-  if (role === 'Solo') {
-    return 'Warrior'
-  }
-
-  if (role === 'Jungle') {
-    return 'Assassin'
-  }
-
-  return 'Unknown'
-}
-
-function getFallbackGod(name: string) {
-  return FALLBACK_ROSTER.find((god) => normalize(god.name) === normalize(name))
 }
 
 function getDailyGod(mode: Mode, roster: God[], dayKey = getUtcDayKey()) {
@@ -911,356 +800,28 @@ function getAbilitySlotLabel(slot: string) {
   return slot
 }
 
-async function loadPortraits() {
-  const response = await fetch(
-    'https://webcms.hirezstudios.com/smite2/api/gods?fields%5B0%5D=Name&populate%5BPortrait%5D%5Bfields%5D%5B0%5D=url&populate%5BPortrait%5D%5Bfields%5D%5B1%5D=formats&pagination%5BpageSize%5D=100',
-  )
+
+type Snapshot = {
+  version: number
+  generatedAt: string
+  gods: God[]
+  abilities: AbilityClue[]
+  skins: SkinClue[]
+  portraits: PortraitMap
+}
+
+// The whole dataset now arrives as one small file built by
+// scripts/build-snapshot.mjs, instead of scraping the wikis on every page load.
+async function loadSnapshot(): Promise<Snapshot | undefined> {
+  const response = await fetch(`${import.meta.env.BASE_URL}data/snapshot.json`)
 
   if (!response.ok) {
-    throw new Error(`Failed to load Smite 2 portraits: ${response.status}`)
+    throw new Error(`Failed to load snapshot: ${response.status}`)
   }
 
-  const body = (await response.json()) as { data?: CmsGod[] }
-  return (body.data ?? []).reduce<PortraitMap>((portraits, god) => {
-    const name = god.attributes?.Name
-    const portrait = god.attributes?.Portrait?.data?.attributes
-    const url = portrait?.formats?.thumbnail?.url ?? portrait?.url
+  const snapshot = (await response.json()) as Snapshot
 
-    if (name && url) {
-      portraits[name] = url
-    }
-
-    return portraits
-  }, {})
-}
-
-const ROLE_CATEGORIES = ['Solo', 'Jungle', 'Mid', 'Support', 'Carry']
-
-const SPECIALIZATION_CATEGORIES = [
-  'Area Control',
-  'Brawler',
-  'Buffs',
-  'Burst Damage',
-  'Constant Damage',
-  'Crowd Control',
-  'Execute',
-  'Global',
-  'Healing',
-  'Lockdown',
-  'Mobile',
-  'Mobility',
-  'Nuker',
-  'Pressure',
-  'Sharpshooter',
-  'Shielding',
-  'Slayer',
-  'Sniper',
-  'Stance-switching',
-  'Stealth',
-  'Sustain',
-  'Tank',
-  'Utility',
-]
-
-const SPECIALIZATION_ALIASES: Record<string, string> = {
-  Mobility: 'Mobile',
-}
-
-const SPECIALIZATION_ORDER = SPECIALIZATION_CATEGORIES.filter(
-  (category) => !SPECIALIZATION_ALIASES[category],
-)
-
-async function loadGodCategories() {
-  const byGod = new Map<string, Set<string>>()
-  let clcontinue: string | undefined
-  let guard = 0
-
-  do {
-    const url =
-      'https://wiki.smite2.com/api.php?action=query&generator=categorymembers' +
-      '&gcmtitle=Category:SMITE%202%20gods&gcmlimit=500&prop=categories&cllimit=max&format=json&origin=*' +
-      (clcontinue ? `&clcontinue=${encodeURIComponent(clcontinue)}` : '')
-
-    const response = await fetch(url)
-
-    if (!response.ok) {
-      break
-    }
-
-    const body = (await response.json()) as {
-      continue?: { clcontinue?: string }
-      query?: {
-        pages?: Record<string, { title?: string; categories?: Array<{ title?: string }> }>
-      }
-    }
-
-    Object.values(body.query?.pages ?? {}).forEach((page) => {
-      const name = page.title?.trim()
-
-      if (!name) {
-        return
-      }
-
-      const bucket = byGod.get(name) ?? new Set<string>()
-
-      page.categories?.forEach((category) => {
-        const label = category.title?.replace(/^Category:/, '').replace(/\s+gods$/i, '').trim()
-
-        if (label) {
-          bucket.add(label)
-        }
-      })
-
-      byGod.set(name, bucket)
-    })
-
-    clcontinue = body.continue?.clcontinue
-    guard += 1
-  } while (clcontinue && guard < 12)
-
-  return byGod
-}
-
-function extractRoles(categories: Set<string> | undefined) {
-  if (!categories) {
-    return []
-  }
-
-  return ROLE_CATEGORIES.filter((role) => categories.has(role))
-}
-
-function extractSpecializations(categories: Set<string> | undefined) {
-  if (!categories) {
-    return []
-  }
-
-  const labels = new Set(
-    Array.from(categories).map((category) => SPECIALIZATION_ALIASES[category] ?? category),
-  )
-
-  return SPECIALIZATION_ORDER.filter((label) => labels.has(label))
-}
-
-async function loadOfficialGods() {
-  const [s2Response, s1Response, categoriesByGod] = await Promise.all([
-    fetch('https://wiki.smite2.com/api.php?action=parse&page=List_of_gods&prop=text&format=json&origin=*'),
-    fetch('https://smite.fandom.com/api.php?action=parse&page=List_of_gods&prop=text&format=json&origin=*'),
-    loadGodCategories().catch(() => new Map<string, Set<string>>()),
-  ])
-
-  if (!s2Response.ok) {
-    throw new Error(`Failed to load SMITE 2 wiki gods: ${s2Response.status}`)
-  }
-
-  const s1Releases = new Map<string, number>()
-
-  if (s1Response.ok) {
-    const s1Body = (await s1Response.json()) as { parse?: { text?: { '*': string } } }
-    const s1Document = new DOMParser().parseFromString(s1Body.parse?.text?.['*'] ?? '', 'text/html')
-    s1Document.querySelectorAll('table tr').forEach((row) => {
-      const cells = Array.from(row.querySelectorAll('td'))
-      const name = cells[1]?.textContent?.trim()
-      const releaseYear = Number(cells[9]?.textContent?.trim().slice(0, 4))
-
-      if (name && Number.isFinite(releaseYear)) {
-        s1Releases.set(name, releaseYear)
-      }
-    })
-  }
-
-  const s2Body = (await s2Response.json()) as { parse?: { text?: { '*': string } } }
-  const s2Document = new DOMParser().parseFromString(s2Body.parse?.text?.['*'] ?? '', 'text/html')
-
-  return Array.from(s2Document.querySelectorAll('table.wikitable tr'))
-    .flatMap((row) => {
-      const cells = Array.from(row.querySelectorAll('td'))
-      const name = cells[1]?.textContent?.trim()
-
-      if (!name) {
-        return []
-      }
-
-      const fallback = getFallbackGod(name)
-      const attackText = cells[3]?.textContent ?? ''
-      const listedRole = cells[4]?.textContent?.trim().split(/\s+/)[0] ?? fallback?.role ?? 'Unknown'
-      const godCategories = categoriesByGod.get(name)
-      const wikiRoles = extractRoles(godCategories)
-      const roles = wikiRoles.length > 0 ? wikiRoles : [listedRole]
-      const wikiSpecializations = extractSpecializations(godCategories)
-      const specializations =
-        wikiSpecializations.length > 0 ? wikiSpecializations : (fallback?.specializations ?? [])
-      const portraitSrc = cells[0]?.querySelector('img')?.getAttribute('src')
-      const portraitUrl = portraitSrc?.startsWith('http')
-        ? portraitSrc
-        : portraitSrc
-          ? `https://wiki.smite2.com${portraitSrc}`
-          : fallback?.portraitUrl
-      const s2ReleaseYear = Number(cells[6]?.textContent?.trim().slice(0, 4))
-
-      return {
-        name,
-        pantheon: cells[2]?.textContent?.trim() ?? fallback?.pantheon ?? 'Unknown',
-        className: fallback?.className ?? inferClass(listedRole),
-        damage: attackText.includes('Magical') ? 'Magical' : 'Physical',
-        range: attackText.includes('Ranged') ? 'Ranged' : 'Melee',
-        role: roles[0] ?? listedRole,
-        roles,
-        specializations,
-        year:
-          s1Releases.get(name) ??
-          FALLBACK_RELEASE_BY_GOD[name] ??
-          (Number.isFinite(s2ReleaseYear) ? s2ReleaseYear : (fallback?.year ?? 2024)),
-        traits: fallback?.traits ?? [listedRole, inferClass(listedRole)],
-        portraitUrl,
-      } satisfies God
-    })
-    .sort((left, right) => left.name.localeCompare(right.name))
-}
-
-async function loadOfficialAbilities() {
-  const response = await fetch(
-    'https://webcms.hirezstudios.com/smite2/api/gods/?lng=en-US&pagination%5Bpage%5D=1&pagination%5BpageSize%5D=100&populate%5B0%5D=Ability&populate%5B1%5D=Ability.Icon',
-  )
-
-  if (!response.ok) {
-    throw new Error(`Failed to load Smite 2 abilities: ${response.status}`)
-  }
-
-  const body = (await response.json()) as { data?: CmsGod[] }
-  return (body.data ?? []).flatMap((god) => {
-    const godName = god.attributes?.Name
-
-    if (!godName) {
-      return []
-    }
-
-    return (god.attributes?.Ability ?? []).flatMap((ability) => {
-      const abilityName = ability.Name
-      const iconUrl = ability.Icon?.data?.attributes?.url
-
-      if (!abilityName || !iconUrl) {
-        return []
-      }
-
-      return {
-        godName,
-        abilityName,
-        slot: ability.Slot ?? 'Ability',
-        icon: abilityName,
-        iconUrl,
-        tone: 440,
-      }
-    })
-  })
-}
-
-const MASTERY_SKIN_NAMES = ['Shadow', 'Onyx', 'Opal', 'Radiant', 'Golden', 'Legendary', 'Diamond']
-
-async function resolveWikiImageUrls(fileNames: string[]) {
-  const urls = new Map<string, string>()
-  const batchSize = 40
-
-  for (let index = 0; index < fileNames.length; index += batchSize) {
-    const batch = fileNames.slice(index, index + batchSize)
-    const titles = batch.map((file) => `File:${file}`).join('|')
-    const response = await fetch(
-      `https://wiki.smite2.com/api.php?action=query&titles=${encodeURIComponent(titles)}&prop=imageinfo&iiprop=url&iiurlwidth=600&format=json&origin=*`,
-    )
-
-    if (!response.ok) {
-      continue
-    }
-
-    const body = (await response.json()) as {
-      query?: {
-        pages?: Record<
-          string,
-          { title?: string; imageinfo?: Array<{ thumburl?: string; url?: string }> }
-        >
-      }
-    }
-
-    Object.values(body.query?.pages ?? {}).forEach((page) => {
-      const fileName = page.title?.replace(/^File:/, '')
-      const url = page.imageinfo?.[0]?.thumburl ?? page.imageinfo?.[0]?.url
-
-      if (fileName && url) {
-        urls.set(fileName, url)
-      }
-    })
-  }
-
-  return urls
-}
-
-async function loadOfficialSkins(roster: God[]) {
-  const godNames = roster.map((god) => god.name)
-  const pending: Array<{ godName: string; skinName: string; imageFile: string; cardFile: string }> =
-    []
-  const batchSize = 20
-
-  for (let index = 0; index < godNames.length; index += batchSize) {
-    const batch = godNames.slice(index, index + batchSize)
-    const response = await fetch(
-      `https://wiki.smite2.com/api.php?action=query&titles=${encodeURIComponent(batch.join('|'))}&prop=revisions&rvprop=content&rvslots=main&format=json&origin=*`,
-    )
-
-    if (!response.ok) {
-      continue
-    }
-
-    const body = (await response.json()) as {
-      query?: {
-        pages?: Record<
-          string,
-          { title?: string; revisions?: Array<{ slots?: { main?: { '*'?: string } } }> }
-        >
-      }
-    }
-
-    Object.values(body.query?.pages ?? {}).forEach((page) => {
-      const godName = page.title
-      const wikitext = page.revisions?.[0]?.slots?.main?.['*']
-
-      if (!godName || !wikitext) {
-        return
-      }
-
-      const skinNames = new Map<string, string>()
-      const skinImages = new Map<string, string>()
-
-      for (const match of wikitext.matchAll(/\|\s*(skin\d+)\s*=\s*([^\n|]+)/g)) {
-        skinNames.set(match[1], match[2].trim())
-      }
-
-      for (const match of wikitext.matchAll(/\|\s*(skin\d+)_img\s*=\s*([^\n|]+)/g)) {
-        skinImages.set(match[1], match[2].trim())
-      }
-
-      skinNames.forEach((skinName, key) => {
-        const imageFile = skinImages.get(key)
-
-        if (!skinName || !imageFile || MASTERY_SKIN_NAMES.includes(skinName)) {
-          return
-        }
-
-        const displayName = skinName === 'Default' ? `Standard ${godName}` : skinName
-        const cardFile = imageFile.replace(/\s*-\s*Full Art\.(png|jpg|jpeg)$/i, '.png')
-
-        pending.push({ godName, skinName: displayName, imageFile, cardFile })
-      })
-    })
-  }
-
-  const imageUrls = await resolveWikiImageUrls([
-    ...new Set(pending.flatMap((skin) => [skin.cardFile, skin.imageFile])),
-  ])
-
-  return pending.flatMap((skin) => {
-    const imageUrl = imageUrls.get(skin.cardFile) ?? imageUrls.get(skin.imageFile)
-
-    return imageUrl ? [{ godName: skin.godName, skinName: skin.skinName, imageUrl }] : []
-  })
+  return snapshot.gods?.length > 0 ? snapshot : undefined
 }
 
 function App() {
@@ -1341,39 +902,28 @@ function App() {
   useEffect(() => {
     let isMounted = true
 
-    loadPortraits()
-      .then((loadedPortraits) => {
-        if (isMounted) {
-          setPortraits(loadedPortraits)
-        }
-      })
-      .catch((error: unknown) => {
-        console.warn(error)
-      })
-
-    loadOfficialGods()
-      .then((gods) => {
-        if (isMounted && gods.length > 0) {
-          setRoster(gods)
-          setRandomClassicAnswer(getRandomItem(gods))
-          setClassicGuesses(loadStoredGodGuesses('classic', dayKey, gods))
+    loadSnapshot()
+      .then((snapshot) => {
+        if (!isMounted || !snapshot) {
+          return
         }
 
-        return loadOfficialSkins(gods.length > 0 ? gods : FALLBACK_ROSTER)
-      })
-      .then((skins) => {
-        if (isMounted && skins.length > 0) {
-          setOfficialSkins(skins)
+        if (snapshot.gods.length > 0) {
+          setRoster(snapshot.gods)
+          setRandomClassicAnswer(getRandomItem(snapshot.gods))
+          setClassicGuesses(loadStoredGodGuesses('classic', dayKey, snapshot.gods))
         }
-      })
-      .catch((error: unknown) => {
-        console.warn(error)
-      })
 
-    loadOfficialAbilities()
-      .then((abilities) => {
-        if (isMounted) {
-          setOfficialAbilities(abilities)
+        if (snapshot.abilities.length > 0) {
+          setOfficialAbilities(snapshot.abilities)
+        }
+
+        if (snapshot.skins.length > 0) {
+          setOfficialSkins(snapshot.skins)
+        }
+
+        if (snapshot.portraits) {
+          setPortraits(snapshot.portraits)
         }
       })
       .catch((error: unknown) => {

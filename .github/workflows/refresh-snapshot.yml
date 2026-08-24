@@ -1,0 +1,61 @@
+name: Refresh dataset snapshot
+
+on:
+  schedule:
+    # Thursdays 04:00 UTC. Patches land Tuesday, so this gives the wiki
+    # community a couple of days to write up the changes first.
+    - cron: '0 4 * * 4'
+  workflow_dispatch:
+    inputs:
+      delay:
+        description: Milliseconds between upstream requests
+        required: false
+        default: '4000'
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build snapshot
+        run: node scripts/build-snapshot.mjs --delay "${{ inputs.delay || '4000' }}"
+
+      - name: Commit if the data changed
+        run: |
+          if git diff --quiet -- public/data/snapshot.json; then
+            echo "No dataset changes this week."
+            exit 0
+          fi
+
+          # generatedAt always differs, so only commit when the payload itself moved
+          node -e "
+            const { execSync } = require('node:child_process');
+            const now = JSON.parse(require('node:fs').readFileSync('public/data/snapshot.json','utf8'));
+            const was = JSON.parse(execSync('git show HEAD:public/data/snapshot.json').toString());
+            const strip = (s) => JSON.stringify({ gods: s.gods, abilities: s.abilities, skins: s.skins, portraits: s.portraits });
+            if (strip(now) === strip(was)) {
+              console.log('Only the timestamp changed.');
+              process.exit(3);
+            }
+            console.log(\`gods \${was.gods.length} -> \${now.gods.length}, abilities \${was.abilities.length} -> \${now.abilities.length}, skins \${was.skins.length} -> \${now.skins.length}\`);
+          " || { [ $? -eq 3 ] && git checkout -- public/data/snapshot.json && exit 0; }
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add public/data/snapshot.json
+          git commit -m "Refresh dataset snapshot
+
+          Automated weekly rebuild from the SMITE 2 wiki, the SMITE wiki and the
+          Hi-Rez CMS. Deploying this also republishes the site."
+          git push
