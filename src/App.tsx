@@ -472,7 +472,8 @@ const MODES: {
     key: 'classic',
     label: 'God',
     eyebrow: 'Daily God Mode',
-    minGuesses: 1,
+    // The opening guess is blind - there are no hints yet - so two is par.
+    minGuesses: 2,
     description:
       'Guess the mystery Smite 2 god. Every guess reveals color-coded hints for pantheon, role, attack range, damage type, specialization, and release year.',
   },
@@ -617,6 +618,27 @@ function seededInt(scope: string, max: number, dayKey = getUtcDayKey()) {
 
 function normalize(value: string) {
   return value.trim().toLowerCase()
+}
+
+// Grades a solved mode against its par. `over` is guesses beyond par, and the
+// tone runs green -> yellow-green -> yellow as it grows, never red: finishing
+// a puzzle is still a win, however long it took.
+function getRating(guesses: number, par: number, surrendered = false) {
+  if (surrendered) {
+    return { label: 'gave up', tone: 'surrendered' }
+  }
+
+  const over = Math.max(0, guesses - par)
+
+  if (over === 0) {
+    return { label: 'perfect!', tone: 'perfect' }
+  }
+
+  if (over === 1) {
+    return { label: 'good', tone: 'good' }
+  }
+
+  return { label: `${over} wrong`, tone: over <= 3 ? 'fair' : 'loose' }
 }
 
 function getDailyGod(mode: Mode, roster: God[], dayKey = getUtcDayKey()) {
@@ -853,6 +875,9 @@ function App() {
   const [itemGuesses, setItemGuesses] = useState<string[]>(() =>
     loadStoredTextGuesses('item-log', dayKey),
   )
+  const [surrendered, setSurrendered] = useState<Mode[]>(
+    () => loadStoredTextGuesses('surrendered', dayKey) as Mode[],
+  )
 
   const splashGuesses = useMemo(
     () =>
@@ -959,6 +984,8 @@ function App() {
             ? itemGuesses
             : []
 
+  const modeSurrendered = surrendered.includes(mode)
+
   const hasWon =
     mode === 'classic'
       ? classicGuesses.some((guess) => guess.name === classicAnswer.name)
@@ -969,10 +996,13 @@ function App() {
           : mode === 'item'
             ? itemGuesses.includes(itemAnswer.name)
             : false
-  const splashGodSolved = splashGuesses.some((guess) => guess.name === splashAnswer.godName)
-  const skinGodSolved = Boolean(
-    skinAnswer && skinGuesses.some((guess) => guess.name === skinAnswer.godName),
-  )
+  // Surrendering resolves the puzzle: everything unlocks, but it is scored apart.
+  const isResolved = hasWon || modeSurrendered
+  const splashGodSolved =
+    modeSurrendered || splashGuesses.some((guess) => guess.name === splashAnswer.godName)
+  const skinGodSolved =
+    modeSurrendered ||
+    Boolean(skinAnswer && skinGuesses.some((guess) => guess.name === skinAnswer.godName))
 
   const godSuggestions = input
     ? roster.filter((god) => normalize(god.name).includes(normalize(input))).slice(0, 7)
@@ -1010,55 +1040,63 @@ function App() {
   }
 
   const modeResults = MODES.map((modeConfig) => {
+    const gaveUp = surrendered.includes(modeConfig.key)
+
     if (modeConfig.key === 'classic') {
-      const solved = classicGuesses.some((guess) => guess.name === classicAnswer.name)
+      const won = classicGuesses.some((guess) => guess.name === classicAnswer.name)
       return {
         ...modeConfig,
-        solved,
+        solved: won || gaveUp,
+        gaveUp,
         guesses: classicGuesses.length,
-        answer: solved ? classicAnswer.name : undefined,
+        answer: won || gaveUp ? classicAnswer.name : undefined,
       }
     }
 
     if (modeConfig.key === 'splash') {
-      const solved = splashAbilityGuesses.includes(getAbilitySlotLabel(splashAnswer.slot))
+      const won = splashAbilityGuesses.includes(getAbilitySlotLabel(splashAnswer.slot))
       return {
         ...modeConfig,
-        solved,
+        solved: won || gaveUp,
+        gaveUp,
         guesses: splashLog.length,
-        answer: solved
-          ? `${splashAnswer.godName} - ${splashAnswer.abilityName}`
-          : undefined,
+        answer:
+          won || gaveUp ? `${splashAnswer.godName} - ${splashAnswer.abilityName}` : undefined,
       }
     }
 
     if (modeConfig.key === 'skin') {
-      const solved = Boolean(skinAnswer && skinNameGuesses.includes(skinAnswer.skinName))
+      const won = Boolean(skinAnswer && skinNameGuesses.includes(skinAnswer.skinName))
       return {
         ...modeConfig,
-        solved,
+        solved: won || gaveUp,
+        gaveUp,
         guesses: skinLog.length,
-        answer: solved ? `${skinAnswer?.godName} - ${skinAnswer?.skinName}` : undefined,
+        answer:
+          won || gaveUp ? `${skinAnswer?.godName} - ${skinAnswer?.skinName}` : undefined,
       }
     }
 
-    const solved = itemGuesses.includes(itemAnswer.name)
+    const won = itemGuesses.includes(itemAnswer.name)
     return {
       ...modeConfig,
-      solved,
+      solved: won || gaveUp,
+      gaveUp,
       guesses: itemGuesses.length,
-      answer: solved ? itemAnswer.name : undefined,
+      answer: won || gaveUp ? itemAnswer.name : undefined,
     }
   })
 
   const unsolvedModes = modeResults.filter((result) => !result.solved)
   const allModesSolved = unsolvedModes.length === 0
-  const totalGuesses = modeResults.reduce((sum, result) => sum + result.guesses, 0)
-  const totalPar = modeResults.reduce((sum, result) => sum + result.minGuesses, 0)
-  const totalMisses = modeResults.reduce(
+  const scoredModes = modeResults.filter((result) => !result.gaveUp)
+  const totalGuesses = scoredModes.reduce((sum, result) => sum + result.guesses, 0)
+  const totalPar = scoredModes.reduce((sum, result) => sum + result.minGuesses, 0)
+  const totalMisses = scoredModes.reduce(
     (sum, result) => sum + Math.max(0, result.guesses - result.minGuesses),
     0,
   )
+  const surrenderedCount = modeResults.filter((result) => result.gaveUp).length
 
   const rollRandomAnswers = (targetMode?: Mode) => {
     if (!targetMode || targetMode === 'classic') {
@@ -1083,6 +1121,9 @@ function App() {
     setSplashLog(nextPlayMode === 'daily' ? loadStoredTextGuesses('splash-log', dayKey) : [])
     setSkinLog(nextPlayMode === 'daily' ? loadStoredTextGuesses('skin-log', dayKey) : [])
     setItemGuesses(nextPlayMode === 'daily' ? loadStoredTextGuesses('item-log', dayKey) : [])
+    setSurrendered(
+      nextPlayMode === 'daily' ? (loadStoredTextGuesses('surrendered', dayKey) as Mode[]) : [],
+    )
   }
 
   const changePlayMode = (nextPlayMode: PlayMode) => {
@@ -1307,11 +1348,62 @@ function App() {
       setItemGuesses([])
     }
 
+    const nextSurrendered = surrendered.filter((entry) => entry !== mode)
+    setSurrendered(nextSurrendered)
+
+    if (playMode === 'daily') {
+      saveTextGuesses('surrendered', dayKey, nextSurrendered)
+    }
+
     scrollToGame()
   }
 
+  const currentAnswerText = () => {
+    if (mode === 'classic') {
+      return classicAnswer.name
+    }
+
+    if (mode === 'splash') {
+      return `${splashAnswer.godName} - ${splashAnswer.abilityName} (${getAbilitySlotLabel(splashAnswer.slot)})`
+    }
+
+    if (mode === 'skin') {
+      return skinAnswer ? `${skinAnswer.godName} - ${skinAnswer.skinName}` : ''
+    }
+
+    return itemAnswer.name
+  }
+
+  const surrenderMode = () => {
+    if (mode === 'summary' || isResolved) {
+      return
+    }
+
+    const nextSurrendered = [...surrendered, mode]
+    setSurrendered(nextSurrendered)
+    setInput('')
+    setSuppressSuggestions(false)
+    setMessage(`Answer: ${currentAnswerText()}`)
+
+    if (playMode === 'daily') {
+      saveTextGuesses('surrendered', dayKey, nextSurrendered)
+    }
+  }
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'F6') {
+        event.preventDefault()
+        surrenderMode()
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  })
+
   const renderSuggestions = () => {
-    if (!input || hasWon || suppressSuggestions) {
+    if (!input || isResolved || suppressSuggestions) {
       return null
     }
 
@@ -1380,7 +1472,7 @@ function App() {
       const revealLevel = splashGodSolved ? 3 : Math.min(wrongGuesses + splashAbilityGuesses.length, 3)
       const rotation = revealLevel >= 1 ? 0 : (seededInt('ability-rotation', 3, dayKey) + 1) * 90
       const isGreyscale = revealLevel < 2
-      const showName = revealLevel >= 3 || hasWon
+      const showName = revealLevel >= 3 || isResolved
 
       return (
         <div className="abilityClueStage">
@@ -1436,7 +1528,7 @@ function App() {
     if (mode === 'item') {
       const wrongGuesses = itemGuesses.filter((guess) => guess !== itemAnswer.name).length
       // 0 strong blur + grey, 1 soft blur + grey, 2 no blur + grey, 3 colour
-      const revealLevel = hasWon ? 3 : Math.min(wrongGuesses, 3)
+      const revealLevel = isResolved ? 3 : Math.min(wrongGuesses, 3)
       const blur = revealLevel >= 2 ? 0 : revealLevel >= 1 ? 3 : 6
       const isGreyscale = revealLevel < 3
 
@@ -1645,13 +1737,23 @@ function App() {
                 {allModesSolved ? (
                   <>
                     <p className="summaryHeadline">
-                      {totalMisses === 0 ? 'Perfect round' : 'All modes complete'}
+                      {surrenderedCount === modeResults.length
+                        ? 'All answers revealed'
+                        : totalMisses === 0
+                          ? 'Perfect round'
+                          : 'All modes complete'}
                     </p>
                     <p className="summarySub">
-                      {totalGuesses} {totalGuesses === 1 ? 'guess' : 'guesses'}
-                      {totalMisses === 0
-                        ? ` - a perfect round, no wrong answers.`
-                        : ` - ${totalMisses} wrong (${totalPar} is perfect).`}
+                      {scoredModes.length === 0
+                        ? 'Every puzzle was surrendered today.'
+                        : `${totalGuesses} ${totalGuesses === 1 ? 'guess' : 'guesses'}${
+                            totalMisses === 0
+                              ? ' - a perfect round, no wrong answers.'
+                              : ` - ${totalMisses} wrong (${totalPar} is perfect).`
+                          }`}
+                      {surrenderedCount > 0 && scoredModes.length > 0
+                        ? ` ${surrenderedCount} surrendered and not scored.`
+                        : ''}
                     </p>
                   </>
                 ) : (
@@ -1665,41 +1767,45 @@ function App() {
                 )}
 
                 <div className="summaryList">
-                  {modeResults.map((result) => (
-                    <button
-                      className={`summaryRow ${result.solved ? 'correct' : 'wrong'}`}
-                      key={result.key}
-                      type="button"
-                      onClick={() => changeMode(result.key)}
-                    >
-                      <span className="summaryRowMain">
-                        <span className="summaryIcon" aria-hidden="true">
-                          {result.solved ? '✓' : '•'}
+                  {modeResults.map((result) => {
+                    const rating = getRating(result.guesses, result.minGuesses, result.gaveUp)
+
+                    return (
+                      <button
+                        className={`summaryRow ${result.solved ? 'correct' : 'wrong'}`}
+                        key={result.key}
+                        type="button"
+                        onClick={() => changeMode(result.key)}
+                      >
+                        <span className="summaryRowMain">
+                          <span className="summaryIcon" aria-hidden="true">
+                            {result.gaveUp ? '−' : result.solved ? '✓' : '•'}
+                          </span>
+                          <span>
+                            <strong>{result.label}</strong>
+                            {result.answer ? <em>{result.answer}</em> : <em>Not solved yet</em>}
+                          </span>
                         </span>
-                        <span>
-                          <strong>{result.label}</strong>
-                          {result.answer ? <em>{result.answer}</em> : <em>Not solved yet</em>}
+                        <span className="summaryScore">
+                          {result.solved ? (
+                            <>
+                              <span className="summaryScoreValue">
+                                {result.gaveUp ? '—' : result.guesses}
+                                {result.gaveUp ? null : (
+                                  <span className="summaryScorePar">/{result.minGuesses}</span>
+                                )}
+                              </span>
+                              <span className={`summaryScoreNote ${rating.tone}`}>
+                                {rating.label}
+                              </span>
+                            </>
+                          ) : (
+                            <span className="summaryScoreValue">Open</span>
+                          )}
                         </span>
-                      </span>
-                      <span className="summaryScore">
-                        {result.solved ? (
-                          <>
-                            <span className="summaryScoreValue">
-                              {result.guesses}
-                              <span className="summaryScorePar">/{result.minGuesses}</span>
-                            </span>
-                            <span className="summaryScoreNote">
-                              {result.guesses <= result.minGuesses
-                                ? 'perfect'
-                                : `${result.guesses - result.minGuesses} wrong`}
-                            </span>
-                          </>
-                        ) : (
-                          <span className="summaryScoreValue">Open</span>
-                        )}
-                      </span>
-                    </button>
-                  ))}
+                      </button>
+                    )
+                  })}
                 </div>
 
                 <p className="summaryFoot">
@@ -1712,10 +1818,12 @@ function App() {
               <>
                 {renderClue()}
 
-                {hasWon ? (
+                {isResolved ? (
               <div className="nextPanel">
                 <span className="metaLabel">
-                  Solved in {activeGuesses.length} {activeGuesses.length === 1 ? 'guess' : 'guesses'}
+                  {modeSurrendered
+                    ? `Gave up - ${currentAnswerText()}`
+                    : `Solved in ${activeGuesses.length} ${activeGuesses.length === 1 ? 'guess' : 'guesses'}`}
                 </span>
                 <button className="primaryButton nextButton" type="button" onClick={goToNextMode}>
                   Next: {nextMode.label} →
@@ -1751,7 +1859,7 @@ function App() {
                   id="god-search"
                   className="guessInput"
                   autoComplete="off"
-                  disabled={hasWon}
+                  disabled={isResolved}
                   placeholder={
                     mode === 'item'
                       ? 'Enter Item Name'
@@ -1765,14 +1873,32 @@ function App() {
                     setSuppressSuggestions(false)
                   }}
                 />
-                <button className="primaryButton" disabled={hasWon} type="submit">
+                <button className="primaryButton" disabled={isResolved} type="submit">
                   Guess
                 </button>
                 {renderSuggestions()}
               </form>
             )}
 
-            <p className={`message ${hasWon || message.startsWith('Correct') ? 'win' : message ? 'error' : ''}`}>
+            {!isResolved ? (
+              <div className="surrenderRow">
+                <button className="surrenderButton" type="button" onClick={surrenderMode}>
+                  Surrender <kbd>F6</kbd>
+                </button>
+              </div>
+            ) : null}
+
+            <p
+              className={`message ${
+                modeSurrendered
+                  ? 'surrendered'
+                  : hasWon || message.startsWith('Correct')
+                    ? 'win'
+                    : message
+                      ? 'error'
+                      : ''
+              }`}
+            >
               {message ||
                 (hasWon
                   ? `Solved in ${activeGuesses.length} guesses.`

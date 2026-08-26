@@ -803,7 +803,71 @@ h1 {
   text-transform: uppercase;
 }
 
+/* Rating ramp: green when on par, sliding toward yellow as guesses pile up.
+   Never red - solving a puzzle at all is still a success. */
+.summaryScoreNote.perfect {
+  color: #5ddc8a;
+}
+
+.summaryScoreNote.good {
+  color: #a8d75c;
+}
+
+.summaryScoreNote.fair {
+  color: #e0cc55;
+}
+
+.summaryScoreNote.loose {
+  color: #f0c247;
+}
+
+.summaryScoreNote.surrendered {
+  color: var(--cp-text-muted);
+}
+
 .summaryRow.correct .summaryScoreNote {
+  /* tone classes above win; this only covers the untoned case */
+  color: inherit;
+}
+
+.surrenderRow {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+.surrenderButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border: 1px dashed var(--cp-border-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--cp-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 160ms ease, border-color 160ms ease;
+}
+
+.surrenderButton:hover {
+  border-color: var(--cp-accent);
+  color: var(--cp-accent);
+}
+
+.surrenderButton kbd {
+  padding: 1px 6px;
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  font-family: inherit;
+  font-size: 10px;
+  opacity: 0.85;
+}
+
+.message.surrendered {
   color: var(--cp-accent);
 }
 
