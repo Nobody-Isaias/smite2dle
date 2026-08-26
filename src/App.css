@@ -822,7 +822,7 @@ h1 {
 }
 
 .summaryScoreNote.surrendered {
-  color: var(--cp-text-muted);
+  color: var(--cp-danger);
 }
 
 .surrenderRow {
@@ -863,7 +863,7 @@ h1 {
 }
 
 .message.surrendered {
-  color: var(--cp-accent);
+  color: var(--cp-danger);
 }
 
 .summaryFoot {

@@ -625,7 +625,7 @@ function normalize(value: string) {
 // a puzzle is still a win, however long it took.
 function getRating(guesses: number, par: number, surrendered = false) {
   if (surrendered) {
-    return { label: 'gave up', tone: 'surrendered' }
+    return { label: 'surrendered', tone: 'surrendered' }
   }
 
   const over = Math.max(0, guesses - par)
@@ -1040,16 +1040,16 @@ function App() {
   }
 
   const modeResults = MODES.map((modeConfig) => {
-    const gaveUp = surrendered.includes(modeConfig.key)
+    const didSurrender = surrendered.includes(modeConfig.key)
 
     if (modeConfig.key === 'classic') {
       const won = classicGuesses.some((guess) => guess.name === classicAnswer.name)
       return {
         ...modeConfig,
-        solved: won || gaveUp,
-        gaveUp,
+        solved: won || didSurrender,
+        didSurrender,
         guesses: classicGuesses.length,
-        answer: won || gaveUp ? classicAnswer.name : undefined,
+        answer: won || didSurrender ? classicAnswer.name : undefined,
       }
     }
 
@@ -1057,11 +1057,11 @@ function App() {
       const won = splashAbilityGuesses.includes(getAbilitySlotLabel(splashAnswer.slot))
       return {
         ...modeConfig,
-        solved: won || gaveUp,
-        gaveUp,
+        solved: won || didSurrender,
+        didSurrender,
         guesses: splashLog.length,
         answer:
-          won || gaveUp ? `${splashAnswer.godName} - ${splashAnswer.abilityName}` : undefined,
+          won || didSurrender ? `${splashAnswer.godName} - ${splashAnswer.abilityName}` : undefined,
       }
     }
 
@@ -1069,34 +1069,34 @@ function App() {
       const won = Boolean(skinAnswer && skinNameGuesses.includes(skinAnswer.skinName))
       return {
         ...modeConfig,
-        solved: won || gaveUp,
-        gaveUp,
+        solved: won || didSurrender,
+        didSurrender,
         guesses: skinLog.length,
         answer:
-          won || gaveUp ? `${skinAnswer?.godName} - ${skinAnswer?.skinName}` : undefined,
+          won || didSurrender ? `${skinAnswer?.godName} - ${skinAnswer?.skinName}` : undefined,
       }
     }
 
     const won = itemGuesses.includes(itemAnswer.name)
     return {
       ...modeConfig,
-      solved: won || gaveUp,
-      gaveUp,
+      solved: won || didSurrender,
+      didSurrender,
       guesses: itemGuesses.length,
-      answer: won || gaveUp ? itemAnswer.name : undefined,
+      answer: won || didSurrender ? itemAnswer.name : undefined,
     }
   })
 
   const unsolvedModes = modeResults.filter((result) => !result.solved)
   const allModesSolved = unsolvedModes.length === 0
-  const scoredModes = modeResults.filter((result) => !result.gaveUp)
+  const scoredModes = modeResults.filter((result) => !result.didSurrender)
   const totalGuesses = scoredModes.reduce((sum, result) => sum + result.guesses, 0)
   const totalPar = scoredModes.reduce((sum, result) => sum + result.minGuesses, 0)
   const totalMisses = scoredModes.reduce(
     (sum, result) => sum + Math.max(0, result.guesses - result.minGuesses),
     0,
   )
-  const surrenderedCount = modeResults.filter((result) => result.gaveUp).length
+  const surrenderedCount = modeResults.filter((result) => result.didSurrender).length
 
   const rollRandomAnswers = (targetMode?: Mode) => {
     if (!targetMode || targetMode === 'classic') {
@@ -1768,7 +1768,7 @@ function App() {
 
                 <div className="summaryList">
                   {modeResults.map((result) => {
-                    const rating = getRating(result.guesses, result.minGuesses, result.gaveUp)
+                    const rating = getRating(result.guesses, result.minGuesses, result.didSurrender)
 
                     return (
                       <button
@@ -1779,7 +1779,7 @@ function App() {
                       >
                         <span className="summaryRowMain">
                           <span className="summaryIcon" aria-hidden="true">
-                            {result.gaveUp ? '−' : result.solved ? '✓' : '•'}
+                            {result.didSurrender ? '−' : result.solved ? '✓' : '•'}
                           </span>
                           <span>
                             <strong>{result.label}</strong>
@@ -1790,8 +1790,8 @@ function App() {
                           {result.solved ? (
                             <>
                               <span className="summaryScoreValue">
-                                {result.gaveUp ? '—' : result.guesses}
-                                {result.gaveUp ? null : (
+                                {result.didSurrender ? '—' : result.guesses}
+                                {result.didSurrender ? null : (
                                   <span className="summaryScorePar">/{result.minGuesses}</span>
                                 )}
                               </span>
@@ -1822,7 +1822,7 @@ function App() {
               <div className="nextPanel">
                 <span className="metaLabel">
                   {modeSurrendered
-                    ? `Gave up - ${currentAnswerText()}`
+                    ? `Surrendered - ${currentAnswerText()}`
                     : `Solved in ${activeGuesses.length} ${activeGuesses.length === 1 ? 'guess' : 'guesses'}`}
                 </span>
                 <button className="primaryButton nextButton" type="button" onClick={goToNextMode}>
@@ -1941,3 +1941,4 @@ function App() {
 }
 
 export default App
+
