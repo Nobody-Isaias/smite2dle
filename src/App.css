@@ -825,11 +825,6 @@ h1 {
   color: var(--cp-text-muted);
 }
 
-.summaryRow.correct .summaryScoreNote {
-  /* tone classes above win; this only covers the untoned case */
-  color: inherit;
-}
-
 .surrenderRow {
   display: flex;
   justify-content: center;
