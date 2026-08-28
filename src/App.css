@@ -708,6 +708,78 @@ h1 {
   text-transform: uppercase;
 }
 
+/* The day's overall grade, tinted with the same tone scale as the rows. */
+.dayGrade {
+  --grade-tone: var(--cp-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  border: 1px solid var(--grade-tone);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--grade-tone), var(--cp-surface) 88%);
+}
+
+.dayGrade.godlike {
+  --grade-tone: #a86ff0;
+  box-shadow: 0 0 24px color-mix(in srgb, #a86ff0, transparent 68%);
+}
+
+.dayGrade.perfect {
+  --grade-tone: #5ddc8a;
+}
+
+.dayGrade.good {
+  --grade-tone: #a8d75c;
+}
+
+.dayGrade.fair {
+  --grade-tone: #e0cc55;
+}
+
+.dayGrade.loose {
+  --grade-tone: #f0a63c;
+}
+
+.dayGrade.surrendered {
+  --grade-tone: var(--cp-danger);
+}
+
+.dayGradeLetter {
+  display: grid;
+  place-items: center;
+  min-width: 62px;
+  height: 62px;
+  border: 2px solid var(--grade-tone);
+  border-radius: 50%;
+  color: var(--grade-tone);
+  font-size: 34px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.dayGradeLabel {
+  color: var(--grade-tone);
+  font-size: clamp(20px, 3vw, 28px);
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+}
+
+.versionBadge {
+  position: fixed;
+  right: 10px;
+  bottom: 8px;
+  z-index: 5;
+  color: var(--cp-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  opacity: 0.55;
+  pointer-events: none;
+  user-select: none;
+}
+
 .summarySub {
   margin: 0;
   color: var(--cp-text-muted);

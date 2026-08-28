@@ -649,6 +649,48 @@ function getRating(guesses: number, par: number, surrendered = false) {
   return { label: `${delta} wrong`, tone: delta <= 3 ? 'fair' : 'loose' }
 }
 
+// Grades the whole day. Scored on how far the round drifted from par rather
+// than on raw guesses, so it stays meaningful if pars are ever retuned, and it
+// reuses the same tones as the per-mode ratings.
+//
+// Surrenders are not folded into the average - a surrendered puzzle has no
+// score - but they do cap the grade, since a flawless day with one answer
+// revealed should not read the same as a genuinely flawless one.
+function getDayGrade(misses: number, underPar: number, scoredCount: number, surrenderedCount: number) {
+  if (scoredCount === 0) {
+    return { grade: '—', label: 'no puzzles scored', tone: 'surrendered' }
+  }
+
+  if (underPar > 0 && misses === 0 && surrenderedCount === 0) {
+    return { grade: 'S', label: 'godlike', tone: 'godlike' }
+  }
+
+  // Average misses per solved puzzle keeps the grade fair whether you played
+  // one mode or all four.
+  const drift = misses / scoredCount
+  const capped = surrenderedCount > 0
+
+  if (drift === 0) {
+    return capped
+      ? { grade: 'B', label: 'clean, but surrendered', tone: 'good' }
+      : { grade: 'A', label: 'flawless', tone: 'perfect' }
+  }
+
+  if (drift <= 0.5) {
+    return { grade: capped ? 'C' : 'B', label: 'strong', tone: 'good' }
+  }
+
+  if (drift <= 1.5) {
+    return { grade: 'C', label: 'solid', tone: 'fair' }
+  }
+
+  if (drift <= 3) {
+    return { grade: 'D', label: 'scrappy', tone: 'loose' }
+  }
+
+  return { grade: 'E', label: 'brute forced', tone: 'loose' }
+}
+
 function getDailyGod(mode: Mode, roster: God[], dayKey = getUtcDayKey()) {
   return seededPick(roster, `god:${mode}`, dayKey) ?? roster[0]
 }
@@ -1113,6 +1155,12 @@ function App() {
     0,
   )
   const surrenderedCount = modeResults.filter((result) => result.didSurrender).length
+  const dayGrade = getDayGrade(
+    totalMisses,
+    totalUnderPar,
+    scoredModes.length,
+    surrenderedCount,
+  )
 
   const rollRandomAnswers = (targetMode?: Mode) => {
     if (!targetMode || targetMode === 'classic') {
@@ -1752,15 +1800,10 @@ function App() {
               <div className="summaryPanel">
                 {allModesSolved ? (
                   <>
-                    <p className="summaryHeadline">
-                      {surrenderedCount === modeResults.length
-                        ? 'All answers revealed'
-                        : totalMisses === 0 && totalUnderPar > 0
-                          ? 'Godlike round'
-                          : totalMisses === 0
-                            ? 'Perfect round'
-                            : 'All modes complete'}
-                    </p>
+                    <div className={`dayGrade ${dayGrade.tone}`}>
+                      <span className="dayGradeLetter">{dayGrade.grade}</span>
+                      <span className="dayGradeLabel">{dayGrade.label}</span>
+                    </div>
                     <p className="summarySub">
                       {scoredModes.length === 0
                         ? 'Every puzzle was surrendered today.'
@@ -1968,6 +2011,9 @@ function App() {
           implied. Content is used for non-commercial, informational fan purposes.
         </p>
       </div>
+      <span className="versionBadge" title="Smite2dle version">
+        v{__APP_VERSION__}
+      </span>
     </main>
   )
 }
