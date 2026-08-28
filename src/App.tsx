@@ -620,25 +620,33 @@ function normalize(value: string) {
   return value.trim().toLowerCase()
 }
 
-// Grades a solved mode against its par. `over` is guesses beyond par, and the
-// tone runs green -> yellow-green -> yellow as it grows, never red: finishing
-// a puzzle is still a win, however long it took.
+// Grades a solved mode against its par. The tone runs gold (under par) ->
+// green -> yellow-green -> yellow as guesses pile up, and only stops at red for
+// a surrender: finishing a puzzle is still a win, however long it took.
+//
+// Only God mode can finish under par - Ability and Skin need a god plus a
+// second answer, and Item's par is already 1 - so naming the god blind on the
+// opening guess is the one way to earn GODLIKE.
 function getRating(guesses: number, par: number, surrendered = false) {
   if (surrendered) {
     return { label: 'surrendered', tone: 'surrendered' }
   }
 
-  const over = Math.max(0, guesses - par)
+  const delta = guesses - par
 
-  if (over === 0) {
+  if (delta < 0) {
+    return { label: 'godlike', tone: 'godlike' }
+  }
+
+  if (delta === 0) {
     return { label: 'perfect!', tone: 'perfect' }
   }
 
-  if (over === 1) {
+  if (delta === 1) {
     return { label: 'good', tone: 'good' }
   }
 
-  return { label: `${over} wrong`, tone: over <= 3 ? 'fair' : 'loose' }
+  return { label: `${delta} wrong`, tone: delta <= 3 ? 'fair' : 'loose' }
 }
 
 function getDailyGod(mode: Mode, roster: God[], dayKey = getUtcDayKey()) {
@@ -998,6 +1006,8 @@ function App() {
             : false
   // Surrendering resolves the puzzle: everything unlocks, but it is scored apart.
   const isResolved = hasWon || modeSurrendered
+  const isGodlikeWin =
+    hasWon && !modeSurrendered && activeGuesses.length < (activeMode?.minGuesses ?? 0)
   const splashGodSolved =
     modeSurrendered || splashGuesses.some((guess) => guess.name === splashAnswer.godName)
   const skinGodSolved =
@@ -1094,6 +1104,12 @@ function App() {
   const totalPar = scoredModes.reduce((sum, result) => sum + result.minGuesses, 0)
   const totalMisses = scoredModes.reduce(
     (sum, result) => sum + Math.max(0, result.guesses - result.minGuesses),
+    0,
+  )
+  // Beating par is only possible in God mode, and only by one, but keep the
+  // arithmetic general so the summary stays correct if pars ever change.
+  const totalUnderPar = scoredModes.reduce(
+    (sum, result) => sum + Math.max(0, result.minGuesses - result.guesses),
     0,
   )
   const surrenderedCount = modeResults.filter((result) => result.didSurrender).length
@@ -1739,17 +1755,21 @@ function App() {
                     <p className="summaryHeadline">
                       {surrenderedCount === modeResults.length
                         ? 'All answers revealed'
-                        : totalMisses === 0
-                          ? 'Perfect round'
-                          : 'All modes complete'}
+                        : totalMisses === 0 && totalUnderPar > 0
+                          ? 'Godlike round'
+                          : totalMisses === 0
+                            ? 'Perfect round'
+                            : 'All modes complete'}
                     </p>
                     <p className="summarySub">
                       {scoredModes.length === 0
                         ? 'Every puzzle was surrendered today.'
                         : `${totalGuesses} ${totalGuesses === 1 ? 'guess' : 'guesses'}${
-                            totalMisses === 0
-                              ? ' - a perfect round, no wrong answers.'
-                              : ` - ${totalMisses} wrong (${totalPar} is perfect).`
+                            totalMisses === 0 && totalUnderPar > 0
+                              ? ` - ${totalUnderPar} under par, no wrong answers.`
+                              : totalMisses === 0
+                                ? ' - a perfect round, no wrong answers.'
+                                : ` - ${totalMisses} wrong (${totalPar} is perfect).`
                           }`}
                       {surrenderedCount > 0 && scoredModes.length > 0
                         ? ` ${surrenderedCount} surrendered and not scored.`
@@ -1768,18 +1788,28 @@ function App() {
 
                 <div className="summaryList">
                   {modeResults.map((result) => {
-                    const rating = getRating(result.guesses, result.minGuesses, result.didSurrender)
+                    const rating = result.solved
+                      ? getRating(result.guesses, result.minGuesses, result.didSurrender)
+                      : { label: 'open', tone: 'unsolved' }
+                    const icon =
+                      rating.tone === 'unsolved'
+                        ? '?'
+                        : rating.tone === 'surrendered'
+                          ? '✕'
+                          : rating.tone === 'godlike' || rating.tone === 'perfect'
+                            ? '★'
+                            : '✓'
 
                     return (
                       <button
-                        className={`summaryRow ${result.solved ? 'correct' : 'wrong'}`}
+                        className={`summaryRow ${rating.tone}`}
                         key={result.key}
                         type="button"
                         onClick={() => changeMode(result.key)}
                       >
                         <span className="summaryRowMain">
                           <span className="summaryIcon" aria-hidden="true">
-                            {result.didSurrender ? '−' : result.solved ? '✓' : '•'}
+                            {icon}
                           </span>
                           <span>
                             <strong>{result.label}</strong>
@@ -1819,11 +1849,13 @@ function App() {
                 {renderClue()}
 
                 {isResolved ? (
-              <div className="nextPanel">
+              <div className={`nextPanel ${isGodlikeWin ? 'godlike' : ''}`}>
                 <span className="metaLabel">
                   {modeSurrendered
                     ? `Surrendered - ${currentAnswerText()}`
-                    : `Solved in ${activeGuesses.length} ${activeGuesses.length === 1 ? 'guess' : 'guesses'}`}
+                    : isGodlikeWin
+                      ? 'Godlike - first guess!'
+                      : `Solved in ${activeGuesses.length} ${activeGuesses.length === 1 ? 'guess' : 'guesses'}`}
                 </span>
                 <button className="primaryButton nextButton" type="button" onClick={goToNextMode}>
                   Next: {nextMode.label} →

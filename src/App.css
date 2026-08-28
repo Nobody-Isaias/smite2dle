@@ -719,6 +719,9 @@ h1 {
   margin-top: 4px;
 }
 
+/* Each row is tinted by its rating, so the colour reads the same in the row as
+   it does in the label: purple for godlike, green for perfect, then a
+   yellow-to-orange ramp, red for a surrender, grey while still open. */
 .summaryRow {
   display: flex;
   justify-content: space-between;
@@ -730,20 +733,71 @@ h1 {
   background: var(--cp-surface-soft);
   color: var(--cp-text);
   text-align: left;
+  --row-tone: var(--cp-border-strong);
+  border-color: var(--row-tone);
+  background: color-mix(in srgb, var(--row-tone), var(--cp-surface) 84%);
 }
 
-.summaryRow.correct {
-  border-color: var(--cp-success);
-  background: color-mix(in srgb, var(--cp-success), var(--cp-surface) 82%);
-}
-
-.summaryRow.wrong {
-  border-color: var(--cp-border-strong);
+.summaryRow.unsolved {
+  --row-tone: #6b7280;
   background: var(--cp-surface-soft);
 }
 
+.summaryRow.godlike {
+  --row-tone: #a86ff0;
+  box-shadow: 0 0 0 1px color-mix(in srgb, #a86ff0, transparent 55%), 0 0 22px
+    color-mix(in srgb, #a86ff0, transparent 62%);
+  animation: godlike-pulse 1.6s ease-out 1;
+}
+
+.summaryRow.perfect {
+  --row-tone: #5ddc8a;
+}
+
+.summaryRow.good {
+  --row-tone: #a8d75c;
+}
+
+.summaryRow.fair {
+  --row-tone: #e0cc55;
+}
+
+.summaryRow.loose {
+  --row-tone: #f0a63c;
+}
+
+.summaryRow.surrendered {
+  --row-tone: var(--cp-danger);
+}
+
+.summaryRow .summaryIcon {
+  color: var(--row-tone);
+}
+
+@keyframes godlike-pulse {
+  0% {
+    box-shadow: 0 0 0 1px color-mix(in srgb, #a86ff0, transparent 55%), 0 0 0 transparent;
+    transform: scale(1);
+  }
+  35% {
+    box-shadow: 0 0 0 1px #a86ff0, 0 0 34px color-mix(in srgb, #a86ff0, transparent 45%);
+    transform: scale(1.015);
+  }
+  100% {
+    box-shadow: 0 0 0 1px color-mix(in srgb, #a86ff0, transparent 55%), 0 0 22px
+      color-mix(in srgb, #a86ff0, transparent 62%);
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .summaryRow.godlike {
+    animation: none;
+  }
+}
+
 .summaryRow:hover {
-  border-color: var(--cp-accent);
+  border-color: color-mix(in srgb, var(--row-tone), #fff 25%);
 }
 
 .summaryRowMain {
@@ -805,6 +859,11 @@ h1 {
 
 /* Rating ramp: green when on par, sliding toward yellow as guesses pile up.
    Never red - solving a puzzle at all is still a success. */
+.summaryScoreNote.godlike {
+  color: #a86ff0;
+  text-shadow: 0 0 10px color-mix(in srgb, #a86ff0, transparent 55%);
+}
+
 .summaryScoreNote.perfect {
   color: #5ddc8a;
 }
@@ -818,7 +877,7 @@ h1 {
 }
 
 .summaryScoreNote.loose {
-  color: #f0c247;
+  color: #f0a63c;
 }
 
 .summaryScoreNote.surrendered {
@@ -921,6 +980,20 @@ h1 {
   border: 1px solid var(--cp-success);
   border-radius: 16px;
   background: color-mix(in srgb, var(--cp-success), var(--cp-surface) 84%);
+}
+
+.nextPanel.godlike {
+  border-color: #a86ff0;
+  background: color-mix(in srgb, #a86ff0, var(--cp-surface) 84%);
+  box-shadow: 0 0 28px color-mix(in srgb, #a86ff0, transparent 62%);
+  animation: godlike-pulse 1.6s ease-out 1;
+}
+
+.nextPanel.godlike .metaLabel {
+  color: #c79dff;
+  font-size: 15px;
+  letter-spacing: 0.14em;
+  text-shadow: 0 0 12px color-mix(in srgb, #a86ff0, transparent 45%);
 }
 
 .nextButton {
